@@ -10,7 +10,9 @@ The tray shows only the number. For example, `56` means **56% of the 7-day allow
 
 - One readable, background-free tray number: green while `Left` is non-negative, red when it is negative, and gray when unavailable.
 - Detailed popup with 5-hour and weekly progress bars.
-- Automatic refresh every minute and manual refresh from the tray menu.
+- A compact plot of the remaining percentage saved on every refresh in magenta, plus a black current-time marker, a solid black `100/7%` daily pacing line, colour-coded `Left`, and an always-visible dashed prediction toward `0%`.
+- Graph buttons to copy the chart as PNG data or download retained time-series data as CSV.
+- Automatic refresh every five minutes and manual refresh from the tray menu.
 - Warning notification once per reset cycle when either allowance reaches 20% remaining.
 - Optional per-user **Start with Windows** registration.
 - No API key, access token, or ChatGPT password stored by this application.
@@ -180,7 +182,15 @@ The utility stores only alert-deduplication timestamps in:
 %LOCALAPPDATA%\CodexUsageTray\alerts.json
 ```
 
-This prevents the 20% warning from repeating every minute during the same reset cycle. It contains no credentials or usage history.
+This prevents the 20% warning from repeating after each refresh during the same reset cycle. It contains no credentials or usage history.
+
+Successful weekly refreshes are retained for seven days in:
+
+```text
+%LOCALAPPDATA%\CodexUsageTray\usage-history.json
+```
+
+The popup plots samples from the current weekly reset cycle, anchored at `100%` when the cycle began. Use **All data** to toggle the graph to every saved sample instead. Without a measurable decline, the prediction defaults to reaching `0%` at reset. The history file contains only timestamps and remaining percentages.
 
 ## Troubleshooting
 

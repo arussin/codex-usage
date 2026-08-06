@@ -59,6 +59,10 @@ internal static class SelfTests
             TestWeeklyDailyRates(now);
             TestWeeklyEndOfDayTarget(now);
             TestWeeklyLeft(now);
+            TestUsageHistoryPersistence(now);
+            TestPlotHistorySelection(now);
+            TestUsagePrediction(now);
+            TestHistoryCsv(now);
             TestPopupReopen();
 
             using (CancellationTokenSource timeout = new(TimeSpan.FromMilliseconds(20)))
@@ -87,6 +91,103 @@ internal static class SelfTests
         {
             Console.Error.WriteLine($"Self-test failed: {exception.Message}");
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// Verifies the graph history selector switches between current-window and all-data modes.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic history samples.</param>
+    private static void TestPlotHistorySelection(DateTimeOffset now)
+    {
+        DateTimeOffset windowStart = now.AddDays(-7);
+        DateTimeOffset windowEnd = now;
+        UsageHistoryPoint oldPoint = new(now.AddDays(-8), 90);
+        UsageHistoryPoint currentPoint = new(now.AddDays(-1), 70);
+        UsageHistoryPoint[] history = [currentPoint, oldPoint];
+
+        UsageHistoryPoint[] weekly = UsagePopup.SelectPlotHistory(
+            history,
+            windowStart,
+            windowEnd,
+            includeAllHistory: false);
+        UsageHistoryPoint[] all = UsagePopup.SelectPlotHistory(
+            history,
+            windowStart,
+            windowEnd,
+            includeAllHistory: true);
+
+        Check(weekly.Length == 1 && weekly[0] == currentPoint, "Weekly plot history selection was incorrect.");
+        Check(all.Length == 2 && all[0] == oldPoint, "All-data plot history selection was incorrect.");
+    }
+
+    /// <summary>
+    /// Verifies the downloadable weekly time-series CSV.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic history samples.</param>
+    private static void TestHistoryCsv(DateTimeOffset now)
+    {
+        string csv = UsagePopup.BuildHistoryCsv(
+        [
+            new UsageHistoryPoint(now.AddMinutes(-5), 80),
+            new UsageHistoryPoint(now, 75),
+        ]);
+        Check(
+            csv.StartsWith(
+                "recordedAt,remainingPercent",
+                StringComparison.Ordinal),
+            "Usage-history CSV header was incorrect.");
+        Check(csv.Contains(",75", StringComparison.Ordinal), "Usage-history CSV data was incorrect.");
+    }
+
+    /// <summary>
+    /// Verifies the zero-usage prediction from declining weekly samples.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic history samples.</param>
+    private static void TestUsagePrediction(DateTimeOffset now)
+    {
+        UsageHistoryPoint[] declining =
+        [
+            new UsageHistoryPoint(now.AddHours(-2), 80),
+            new UsageHistoryPoint(now, 60),
+        ];
+        Check(
+            UsagePopup.PredictZeroAt(declining) == now.AddHours(6),
+            "Weekly zero prediction was incorrect.");
+        Check(
+            UsagePopup.PredictZeroAt(
+            [
+                new UsageHistoryPoint(now.AddHours(-1), 60),
+                new UsageHistoryPoint(now, 60),
+            ]) is null,
+            "Flat weekly history produced a zero prediction.");
+    }
+
+    /// <summary>
+    /// Verifies weekly usage-history retention and persistence.
+    /// </summary>
+    /// <param name="now">The timestamp used to create retained and expired samples.</param>
+    private static void TestUsageHistoryPersistence(DateTimeOffset now)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "usage-history.json");
+        try
+        {
+            UsageHistoryStore store = new(path);
+            LimitReading reading = new(LimitState.Available, 80, now.AddDays(1));
+            store.Record(reading, now.AddDays(-8));
+            store.Record(reading with { RemainingPercent = 55 }, now);
+
+            Check(store.Points.Count == 1, "Expired weekly usage history was retained.");
+            Check(store.Points[0].RemainingPercent == 55, "Weekly usage history value was incorrect.");
+            Check(new UsageHistoryStore(path).Points.Count == 1, "Weekly usage history was not persisted.");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
     }
 

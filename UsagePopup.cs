@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace CodexUsageTray;
 
 internal sealed class UsagePopup : Form
@@ -11,10 +13,15 @@ internal sealed class UsagePopup : Form
     private readonly Label _weeklyEndOfDay = new();
     private readonly Label _weeklyLeft = new();
     private readonly Label _weeklyReset = new();
+    private readonly Panel _historyPlot = new();
+    private readonly Button _copyPlotButton = new();
+    private readonly Button _downloadHistoryButton = new();
+    private readonly CheckBox _plotAllHistoryToggle = new();
     private readonly Label _status = new();
     private readonly Label _error = new();
     private readonly System.Windows.Forms.Timer _countdownTimer = new() { Interval = 1_000 };
     private UsageSnapshot _snapshot = UsageSnapshot.Initial();
+    private IReadOnlyList<UsageHistoryPoint> _history = [];
     private bool _refreshing;
 
     /// <summary>
@@ -23,7 +30,7 @@ internal sealed class UsagePopup : Form
     internal UsagePopup()
     {
         Text = "Codex usage";
-        ClientSize = new Size(360, 295);
+        ClientSize = new Size(360, 515);
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -43,14 +50,35 @@ internal sealed class UsagePopup : Form
         ConfigureResetLabel(_fiveHourReset, 91);
         ConfigureValueLabel(_weeklyValue, "Weekly", 121);
         ConfigureProgress(_weeklyProgress, 141);
-        ConfigureResetLabel(_weeklyDailyRates, 167);
-        ConfigureResetLabel(_weeklyEndOfDay, 186);
-        ConfigureResetLabel(_weeklyLeft, 205);
-        ConfigureResetLabel(_weeklyReset, 224);
+        _historyPlot.SetBounds(12, 167, 336, 180);
+        _historyPlot.BackColor = SystemColors.Window;
+        _historyPlot.BorderStyle = BorderStyle.FixedSingle;
+        _historyPlot.Paint += (_, eventArgs) =>
+            DrawHistory(
+                eventArgs.Graphics,
+                _historyPlot.ClientRectangle,
+                _history,
+                _snapshot.Weekly,
+                _plotAllHistoryToggle.Checked);
+        _copyPlotButton.SetBounds(12, 355, 100, 25);
+        _copyPlotButton.Text = "Copy PNG";
+        _copyPlotButton.Click += (_, _) => CopyPlotToClipboard();
+        _downloadHistoryButton.SetBounds(120, 355, 112, 25);
+        _downloadHistoryButton.Text = "Download CSV";
+        _downloadHistoryButton.Click += (_, _) => DownloadHistoryCsv();
+        _plotAllHistoryToggle.SetBounds(240, 355, 108, 25);
+        _plotAllHistoryToggle.Appearance = Appearance.Button;
+        _plotAllHistoryToggle.Text = "All data";
+        _plotAllHistoryToggle.TextAlign = ContentAlignment.MiddleCenter;
+        _plotAllHistoryToggle.CheckedChanged += (_, _) => _historyPlot.Invalidate();
+        ConfigureResetLabel(_weeklyDailyRates, 388);
+        ConfigureResetLabel(_weeklyEndOfDay, 407);
+        ConfigureResetLabel(_weeklyLeft, 426);
+        ConfigureResetLabel(_weeklyReset, 445);
 
-        _status.SetBounds(12, 252, 336, 18);
+        _status.SetBounds(12, 473, 336, 18);
         _status.ForeColor = SystemColors.GrayText;
-        _error.SetBounds(12, 271, 336, 20);
+        _error.SetBounds(12, 492, 336, 20);
         _error.AutoEllipsis = true;
         _error.ForeColor = Color.Firebrick;
 
@@ -65,6 +93,10 @@ internal sealed class UsagePopup : Form
             _weeklyEndOfDay,
             _weeklyLeft,
             _weeklyReset,
+            _historyPlot,
+            _copyPlotButton,
+            _downloadHistoryButton,
+            _plotAllHistoryToggle,
             _status,
             _error,
         ]);
@@ -80,10 +112,16 @@ internal sealed class UsagePopup : Form
     /// </summary>
     /// <param name="snapshot">The latest normalized usage snapshot.</param>
     /// <param name="refreshing">Whether a refresh is currently running.</param>
-    internal void UpdateSnapshot(UsageSnapshot snapshot, bool refreshing)
+    /// <param name="history">The retained weekly remaining-percentage samples.</param>
+    internal void UpdateSnapshot(
+        UsageSnapshot snapshot,
+        bool refreshing,
+        IReadOnlyList<UsageHistoryPoint> history)
     {
         _snapshot = snapshot;
         _refreshing = refreshing;
+        _history = history.ToArray();
+        _historyPlot.Invalidate();
         Render();
     }
 
@@ -160,6 +198,386 @@ internal sealed class UsagePopup : Form
     {
         label.SetBounds(12, top, 336, 18);
         label.ForeColor = SystemColors.GrayText;
+    }
+
+    /// <summary>
+    /// Draws the retained weekly remaining-percentage samples as a compact line plot.
+    /// </summary>
+    /// <param name="graphics">The plot drawing surface.</param>
+    /// <param name="bounds">The available plot bounds.</param>
+    /// <param name="history">The retained weekly samples.</param>
+    /// <param name="reading">The current weekly limit reading.</param>
+    /// <param name="includeAllHistory">Whether every retained sample should be plotted.</param>
+    private static void DrawHistory(
+        Graphics graphics,
+        Rectangle bounds,
+        IReadOnlyList<UsageHistoryPoint> history,
+        LimitReading reading,
+        bool includeAllHistory)
+    {
+        graphics.Clear(SystemColors.Window);
+        Rectangle titleBounds = new(42, 2, bounds.Width - 46, 16);
+        TextRenderer.DrawText(
+            graphics,
+            "%-left",
+            SystemFonts.MessageBoxFont,
+            new Rectangle(2, 2, 36, 16),
+            SystemColors.GrayText,
+            TextFormatFlags.Right | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(
+            graphics,
+            "Magenta: remaining / refresh",
+            SystemFonts.MessageBoxFont,
+            titleBounds,
+            SystemColors.ControlText,
+            TextFormatFlags.Left | TextFormatFlags.NoPadding);
+
+        DateTimeOffset cycleEnd = reading.ResetsAt ?? DateTimeOffset.Now;
+        DateTimeOffset cycleStart = cycleEnd.AddMinutes(-CodexRateLimitReader.WeeklyMinutes);
+        UsageHistoryPoint[] selectedHistory = SelectPlotHistory(
+            history,
+            cycleStart,
+            cycleEnd,
+            includeAllHistory);
+        DateTimeOffset plotStart = includeAllHistory && selectedHistory.Length > 0
+            ? selectedHistory[0].RecordedAt
+            : cycleStart;
+        DateTimeOffset plotEnd = includeAllHistory && selectedHistory.Length > 0
+            ? selectedHistory[^1].RecordedAt > DateTimeOffset.Now
+                ? selectedHistory[^1].RecordedAt
+                : DateTimeOffset.Now
+            : cycleEnd;
+        if (plotEnd <= plotStart)
+        {
+            plotEnd = plotStart.AddMinutes(1);
+        }
+
+        Rectangle plot = new(42, 20, Math.Max(1, bounds.Width - 48), Math.Max(1, bounds.Height - 60));
+        Rectangle leftPeriodBounds = new(plot.Left, plot.Bottom + 18, plot.Width / 2, 16);
+        Rectangle rightPeriodBounds = new(
+            plot.Left + (plot.Width / 2),
+            plot.Bottom + 18,
+            plot.Width - (plot.Width / 2),
+            16);
+        TextRenderer.DrawText(
+            graphics,
+            plotStart.ToLocalTime().ToString("dd MMM HH:mm"),
+            SystemFonts.MessageBoxFont,
+            leftPeriodBounds,
+            SystemColors.GrayText,
+            TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(
+            graphics,
+            plotEnd.ToLocalTime().ToString("dd MMM HH:mm"),
+            SystemFonts.MessageBoxFont,
+            rightPeriodBounds,
+            SystemColors.GrayText,
+            TextFormatFlags.Right | TextFormatFlags.NoPadding);
+
+        using Pen gridPen = new(SystemColors.ControlLight);
+        using Font axisFont = new("Segoe UI", 7, FontStyle.Regular, GraphicsUnit.Point);
+        for (int percent = 0; percent <= 100; percent += 10)
+        {
+            int y = plot.Bottom - (int)Math.Round(percent / 100d * plot.Height);
+            graphics.DrawLine(gridPen, plot.Left, y, plot.Right, y);
+            TextRenderer.DrawText(
+                graphics,
+                $"{percent}%",
+                axisFont,
+                new Rectangle(2, y - 7, 36, 14),
+                SystemColors.GrayText,
+                TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+
+        for (int day = 0; day <= 7; day++)
+        {
+            int x = plot.Left + (int)Math.Round(day / 7d * plot.Width);
+            DateTimeOffset tickTime = plotStart.AddSeconds((plotEnd - plotStart).TotalSeconds / 7d * day)
+                .ToLocalTime();
+            graphics.DrawLine(gridPen, x, plot.Top, x, plot.Bottom);
+            TextRenderer.DrawText(
+                graphics,
+                tickTime.ToString("dd"),
+                axisFont,
+                new Rectangle(x - 16, plot.Bottom + 2, 32, 14),
+                SystemColors.GrayText,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
+        }
+
+        using Pen pacingPen = new(Color.Black, 1);
+        double plotSeconds = (plotEnd - plotStart).TotalSeconds;
+        float pacingStartX = plot.Left + ((float)((cycleStart - plotStart).TotalSeconds / plotSeconds) * plot.Width);
+        float pacingEndX = plot.Left + ((float)((cycleEnd - plotStart).TotalSeconds / plotSeconds) * plot.Width);
+        graphics.SetClip(plot);
+        graphics.DrawLine(pacingPen, pacingStartX, plot.Top, pacingEndX, plot.Bottom);
+        graphics.ResetClip();
+        TextRenderer.DrawText(
+            graphics,
+            "100/7% per day",
+            axisFont,
+            new Rectangle(plot.Left + 4, plot.Top + 3, 82, 14),
+            Color.Black,
+            TextFormatFlags.Left | TextFormatFlags.NoPadding);
+
+        if (selectedHistory.Length == 0
+            && reading.State == LimitState.Available
+            && reading.RemainingPercent is int currentRemaining)
+        {
+            DateTimeOffset now = DateTimeOffset.Now;
+            DateTimeOffset sampleTime = now < cycleStart
+                ? cycleStart
+                : now > cycleEnd
+                    ? cycleEnd
+                    : now;
+            selectedHistory =
+            [
+                new UsageHistoryPoint(sampleTime, Math.Clamp(currentRemaining, 0, 100)),
+            ];
+        }
+
+        if (selectedHistory.Length == 0)
+        {
+            TextRenderer.DrawText(
+                graphics,
+                "No samples yet",
+                SystemFonts.MessageBoxFont,
+                plot,
+                SystemColors.GrayText,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            return;
+        }
+
+        double? pacingLeft = CalculateWeeklyLeft(reading, DateTimeOffset.Now);
+        string pacingText = pacingLeft is double value
+            ? FormattableString.Invariant($"Left: {value:F1}%")
+            : "Left: N/A";
+        TextRenderer.DrawText(
+            graphics,
+            pacingText,
+            SystemFonts.MessageBoxFont,
+            titleBounds,
+            TrayIconRenderer.ResolveTextColor(pacingLeft),
+            TextFormatFlags.Right | TextFormatFlags.NoPadding);
+
+        UsageHistoryPoint[] plotHistory =
+            includeAllHistory
+                ? selectedHistory
+                :
+                [
+                    new UsageHistoryPoint(cycleStart, 100),
+                    .. selectedHistory,
+                ];
+        PointF[] points = new PointF[plotHistory.Length];
+        for (int index = 0; index < plotHistory.Length; index++)
+        {
+            double elapsedSeconds = (plotHistory[index].RecordedAt - plotStart).TotalSeconds;
+            float x = plot.Left + ((float)(elapsedSeconds / plotSeconds) * plot.Width);
+            int remaining = Math.Clamp(plotHistory[index].RemainingPercent, 0, 100);
+            float y = plot.Top + ((100 - remaining) / 100f * plot.Height);
+            points[index] = new PointF(x, y);
+        }
+
+        using Pen linePen = new(Color.Magenta, 2);
+        if (points.Length > 1)
+        {
+            graphics.DrawLines(linePen, points);
+        }
+        else
+        {
+            graphics.FillEllipse(Brushes.Magenta, points[0].X - 2, points[0].Y - 2, 4, 4);
+        }
+
+        DateTimeOffset zeroAt = selectedHistory[^1].RemainingPercent == 0
+            ? cycleEnd
+            : PredictZeroAt(plotHistory) ?? cycleEnd;
+        float predictionX = plot.Left
+            + ((float)((zeroAt - plotStart).TotalSeconds / plotSeconds) * plot.Width);
+        using Pen predictionPen = new(Color.OrangeRed, 1)
+        {
+            DashStyle = System.Drawing.Drawing2D.DashStyle.Dash,
+        };
+        graphics.SetClip(plot);
+        graphics.DrawLine(
+            predictionPen,
+            points[^1],
+            new PointF(predictionX, plot.Bottom));
+        graphics.ResetClip();
+
+        if (reading.RemainingPercent is int displayedRemaining)
+        {
+            int current = Math.Clamp(displayedRemaining, 0, 100);
+            int currentY = plot.Top + (int)Math.Round((100 - current) / 100d * plot.Height);
+            using Pen currentPen = new(Color.Magenta, 1)
+            {
+                DashStyle = System.Drawing.Drawing2D.DashStyle.Dot,
+            };
+            graphics.DrawLine(currentPen, plot.Left, currentY, plot.Right, currentY);
+            TextRenderer.DrawText(
+                graphics,
+                $"Current {current}%",
+                axisFont,
+                new Rectangle(plot.Right - 72, currentY - 14, 70, 14),
+                Color.Magenta,
+                TextFormatFlags.Right | TextFormatFlags.NoPadding);
+        }
+
+        DateTimeOffset markerTime = DateTimeOffset.Now;
+        double markerPosition = Math.Clamp(
+            (markerTime - plotStart).TotalSeconds / plotSeconds,
+            0,
+            1);
+        int markerX = plot.Left + (int)Math.Round(markerPosition * plot.Width);
+        using Pen markerPen = new(Color.Black, 1);
+        graphics.DrawLine(markerPen, markerX, plot.Top, markerX, plot.Bottom);
+        int markerLabelX = Math.Clamp(markerX - 30, plot.Left, plot.Right - 60);
+        TextRenderer.DrawText(
+            graphics,
+            $"Today {markerTime.ToLocalTime():dd}",
+            axisFont,
+            new Rectangle(markerLabelX, plot.Top + 1, 60, 14),
+            Color.Black,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
+    }
+
+    /// <summary>
+    /// Selects the saved samples to draw in either weekly-window or all-history mode.
+    /// </summary>
+    /// <param name="history">The retained weekly samples.</param>
+    /// <param name="windowStart">The current weekly window start.</param>
+    /// <param name="windowEnd">The current weekly window end.</param>
+    /// <param name="includeAllHistory">Whether every retained sample should be selected.</param>
+    /// <returns>The selected samples in chronological order.</returns>
+    internal static UsageHistoryPoint[] SelectPlotHistory(
+        IReadOnlyList<UsageHistoryPoint> history,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        bool includeAllHistory)
+    {
+        IEnumerable<UsageHistoryPoint> selected = includeAllHistory
+            ? history
+            : history.Where(point => point.RecordedAt >= windowStart && point.RecordedAt <= windowEnd);
+        return selected
+            .OrderBy(point => point.RecordedAt)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Builds a CSV export of retained weekly remaining-percentage samples.
+    /// </summary>
+    /// <param name="history">Chronologically ordered weekly remaining-percentage samples.</param>
+    /// <returns>The CSV document.</returns>
+    internal static string BuildHistoryCsv(IReadOnlyList<UsageHistoryPoint> history)
+    {
+        StringBuilder csv = new("recordedAt,remainingPercent");
+        csv.AppendLine();
+        for (int index = 0; index < history.Count; index++)
+        {
+            csv.Append(FormattableString.Invariant(
+                $"{history[index].RecordedAt:O},{history[index].RemainingPercent}"));
+            csv.AppendLine();
+        }
+
+        return csv.ToString();
+    }
+
+    /// <summary>
+    /// Copies the rendered weekly graph to the Windows clipboard as PNG data.
+    /// </summary>
+    private void CopyPlotToClipboard()
+    {
+        try
+        {
+            using Bitmap bitmap = new(_historyPlot.Width, _historyPlot.Height);
+            using (Graphics graphics = Graphics.FromImage(bitmap))
+            {
+                DrawHistory(
+                    graphics,
+                    new Rectangle(Point.Empty, bitmap.Size),
+                    _history,
+                    _snapshot.Weekly,
+                    _plotAllHistoryToggle.Checked);
+            }
+
+            using MemoryStream png = new();
+            bitmap.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+            png.Position = 0;
+            DataObject clipboardData = new();
+            clipboardData.SetData(DataFormats.Bitmap, true, bitmap);
+            clipboardData.SetData("PNG", false, png);
+            Clipboard.SetDataObject(clipboardData, true);
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or ArgumentException
+            or System.Runtime.InteropServices.ExternalException)
+        {
+            MessageBox.Show(
+                $"Could not copy the graph: {exception.Message}",
+                "Codex Usage Tray",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Saves the retained weekly time-series data to a user-selected CSV file.
+    /// </summary>
+    private void DownloadHistoryCsv()
+    {
+        using SaveFileDialog dialog = new()
+        {
+            AddExtension = true,
+            DefaultExt = "csv",
+            FileName = $"codex-usage-history-{DateTime.Now:yyyy-MM-dd}.csv",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            Title = "Download Codex usage history",
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(dialog.FileName, BuildHistoryCsv(_history));
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException)
+        {
+            MessageBox.Show(
+                $"Could not save the history: {exception.Message}",
+                "Codex Usage Tray",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Predicts when weekly remaining usage reaches zero from its average observed decline.
+    /// </summary>
+    /// <param name="history">Chronologically ordered weekly remaining-percentage samples.</param>
+    /// <returns>The predicted zero timestamp, or null without a measurable decline.</returns>
+    internal static DateTimeOffset? PredictZeroAt(IReadOnlyList<UsageHistoryPoint> history)
+    {
+        if (history.Count < 2)
+        {
+            return null;
+        }
+
+        UsageHistoryPoint latest = history[^1];
+        UsageHistoryPoint? baseline = history.FirstOrDefault(
+            point => point.RecordedAt < latest.RecordedAt
+                && point.RemainingPercent > latest.RemainingPercent);
+        if (baseline is null)
+        {
+            return null;
+        }
+
+        double elapsedSeconds = (latest.RecordedAt - baseline.RecordedAt).TotalSeconds;
+        double usedPercent = baseline.RemainingPercent - latest.RemainingPercent;
+        double secondsToZero = elapsedSeconds / usedPercent * latest.RemainingPercent;
+        return latest.RecordedAt.AddSeconds(secondsToZero);
     }
 
     /// <summary>

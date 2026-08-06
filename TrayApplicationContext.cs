@@ -4,13 +4,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
 {
     private readonly CodexRateLimitReader _reader = new();
     private readonly AlertStateStore _alertStateStore = new();
+    private readonly UsageHistoryStore _usageHistoryStore = new();
     private readonly StartupRegistration _startupRegistration = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly NotifyIcon _weeklyIcon = new();
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _startupItem = new("Start with Windows");
     private readonly UsagePopup _popup = new();
-    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 60_000 };
+    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 300_000 };
     private UsageSnapshot _snapshot = UsageSnapshot.Initial();
     private Icon? _weeklyRenderedIcon;
     private bool _refreshing;
@@ -88,7 +89,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     /// </summary>
     private void ShowPopup()
     {
-        _popup.UpdateSnapshot(_snapshot, _refreshing);
+        _popup.UpdateSnapshot(_snapshot, _refreshing, _usageHistoryStore.Points);
         _popup.ShowNearTaskbar();
         _ = RefreshAsync();
     }
@@ -104,10 +105,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _refreshing = true;
-        _popup.UpdateSnapshot(_snapshot, refreshing: true);
+        _popup.UpdateSnapshot(_snapshot, refreshing: true, _usageHistoryStore.Points);
         try
         {
             _snapshot = await _reader.FetchAsync(_shutdown.Token);
+            _usageHistoryStore.Record(_snapshot.Weekly, _snapshot.RefreshedAt);
             ApplySnapshot(_snapshot);
             ShowLowUsageAlerts(_snapshot);
         }
@@ -125,7 +127,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _refreshing = false;
             if (!_shutdown.IsCancellationRequested)
             {
-                _popup.UpdateSnapshot(_snapshot, refreshing: false);
+                _popup.UpdateSnapshot(_snapshot, refreshing: false, _usageHistoryStore.Points);
             }
         }
     }
@@ -144,7 +146,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _weeklyIcon.Visible = true;
         oldWeekly?.Dispose();
         _weeklyIcon.Text = FormatTooltip("Weekly", snapshot.Weekly);
-        _popup.UpdateSnapshot(snapshot, _refreshing);
+        _popup.UpdateSnapshot(snapshot, _refreshing, _usageHistoryStore.Points);
     }
 
     /// <summary>
