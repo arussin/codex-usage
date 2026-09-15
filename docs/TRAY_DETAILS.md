@@ -1,23 +1,29 @@
-# Codex Usage Tray
+# Tray controls
 
-A lightweight Windows tray app for Codex quotas, with an optional JSON feed for widgets and other consumers.
+The tray number shows the percentage of your weekly Codex allowance remaining. Open the tray overflow area if the icon is hidden.
 
-Based on [Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage). The proposed `arussin/codex-usage` repository must be created as a real GitHub fork, preserving upstream history and its [MIT license](LICENSE).
+## View your usage
 
-## Get started
+Left-click the number to open the popup. It shows the five-hour and weekly limits, their reset times, and a graph of recorded weekly usage. Opening the popup also requests a fresh reading.
 
-**Release draft:** this candidate is built and tested locally but has not been published. Once approved, download the complete self-contained Windows x64 ZIP from the fork's verified release. Users do not need Git, an SDK, or compilation.
+A missing allowance is shown as unavailable. An available allowance with zero remaining is exhausted; it is different from unavailable data.
 
-1. Extract the entire build into a stable folder and run `CodexUsageTray.exe`.
-2. Have a working Codex CLI session signed in on this Windows account. The app prefers the desktop-bundled CLI and otherwise uses `codex` on PATH.
-3. Left-click the tray number for details; right-click for Refresh and settings.
+The app refreshes at startup and every five minutes while running. Right-click → **Refresh** requests an update immediately. The selected Codex CLI must be signed in on your Windows account.
 
-## Optional JSON export
+## Tray menu
 
-Export is **off by default**. Right-click → **JSON export → Enable export**. Choose **Choose output file…** to change the destination.
+| Control | Action |
+| --- | --- |
+| Refresh | Request current quota readings. |
+| JSON export → Enable export | Start or stop writing the JSON feed. Off by default. |
+| JSON export → Choose output file… | Select the destination file. Selecting a file does not enable export. |
+| Start with Windows | Enable or disable automatic startup for this Windows account. |
+| Exit | Close the tray app and stop polling. |
 
-The compatibility default is `%LOCALAPPDATA%\CodexUsagePhone\usage.json`. Export follows the existing five-minute refresh, including startup and manual refreshes. No extra polling or server is added. Old files retain their timestamps after failures or disabling; consumers must check freshness.
+## Use the JSON feed
 
-[Export contract and settings](JSON_EXPORT.md) · [Upstream usage and maintainer build guide](UPSTREAM_GUIDE.md)
+The default destination is `%LOCALAPPDATA%\CodexUsagePhone\usage.json`. It contains the same normalized quota readings used by the tray.
 
-The independent `arussin/kwgt-cyberdeck-status` project holds the companion widgets and guides. Tray source, patches, and binaries stay in this fork.
+Disabling export leaves the last file in place. Changing the destination also leaves the old file intact. Fetch or write failures preserve the previous timestamp, so downstream tools should check `refreshedAt` before presenting a reading as current.
+
+[JSON contract and settings](JSON_EXPORT.md) · [Installation and rollback](INSTALL.md) · [Usage graphs and technical reference](UPSTREAM_GUIDE.md)

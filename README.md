@@ -1,21 +1,29 @@
-# Codex Usage Tray + JSON export
+# Codex Usage Tray
 
-**Windows tray quota monitor with an optional status feed for other tools.**
+Keep your Codex quota visible in the Windows system tray. Open the popup for five-hour and weekly limits, reset times, and a weekly usage graph. Export a small JSON feed for widgets and other tools.
 
-This is a direct fork of **[Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage)**. Upstream history and its MIT license are retained. Adam's additions provide default-off JSON export, CLI-discovery improvements, and display-scaling fixes. [Detailed tray documentation](docs/TRAY_DETAILS.md).
+## Get started
 
-## Use it
+Requires **Windows x64** and a **signed-in Codex CLI** on the same Windows account. The app finds the desktop-bundled CLI or uses `codex` on PATH.
 
-The self-contained Windows x64 build is being prepared under [Releases](https://github.com/arussin/codex-usage/releases). **The first exporter build remains a draft until the final Windows and phone checks pass.** Do not use an unrelated upstream download expecting this exporter.
+**Windows downloads are not yet publicly available.** Check [Releases](https://github.com/arussin/codex-usage/releases) for availability. Builds include the .NET runtime; no SDK or compilation is needed.
 
-After a release is available:
+1. Extract the complete release ZIP into a stable folder.
+2. Run `CodexUsageTray.exe`.
+3. Left-click the tray number for details; right-click for **Refresh**, settings, or **Exit**.
 
-1. Extract the entire ZIP to a stable folder and run `CodexUsageTray.exe`. A working, signed-in Codex CLI is required; no .NET SDK is needed to run the release.
-2. Right-click the tray → **JSON export → Enable export**.
-3. Read `%LOCALAPPDATA%\CodexUsagePhone\usage.json`, or choose another dedicated status destination.
+[Installation and updates](docs/INSTALL.md) · [Tray controls](docs/TRAY_DETAILS.md)
 
-For my Android widgets: **[Cyberdeck Status for KWGT](https://github.com/arussin/kwgt-cyberdeck-status)** → [three-step setup](https://github.com/arussin/kwgt-cyberdeck-status/blob/main/docs/CODEX_SETUP.md).
+## Optional JSON export
 
-The tray uses its existing refresh cycle. Export failures preserve the old file and timestamp. Disabling export does not delete that file or stop any sharing service.
+Export is **off by default**. Right-click → **JSON export → Enable export**. Use **Choose output file…** to change the destination.
 
-[JSON contract](docs/JSON_EXPORT.md) · [Safe update/rollback](docs/INSTALL.md) · [Release checks](docs/RELEASE_CHECKS.md) · [MIT license](LICENSE)
+Default file: `%LOCALAPPDATA%\CodexUsagePhone\usage.json`
+
+The feed contains quota availability, remaining percentages, reset times, and a refresh timestamp. It updates with the tray's five-minute polling and manual refreshes. Failed refreshes leave the previous file and timestamp intact; consumers should check its age.
+
+[JSON fields and settings](docs/JSON_EXPORT.md) · [Android widgets and setup](https://github.com/arussin/kwgt-cyberdeck-status)
+
+## Credits
+
+Forked from [Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage), with optional JSON export, CLI discovery improvements, and display-scaling fixes. Licensed under [MIT](LICENSE).
