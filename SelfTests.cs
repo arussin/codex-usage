@@ -60,6 +60,8 @@ internal static class SelfTests
             TestWeeklyEndOfDayTarget(now);
             TestWeeklyLeft(now);
             TestUsageHistoryPersistence(now);
+            TestJsonSnapshotPersistence(now);
+            TestJsonExportConsent(now);
             TestPlotHistorySelection(now);
             TestUsagePrediction(now);
             TestHistoryCsv(now);
@@ -257,15 +259,24 @@ internal static class SelfTests
     }
 
     /// <summary>
-    /// Verifies that a user close hides the reusable popup instead of disposing it.
+    /// Verifies readable scaled labels and stable sizing when reopening the reusable popup.
     /// </summary>
     private static void TestPopupReopen()
     {
+        ApplicationConfiguration.Initialize();
         using UsagePopup popup = new();
         popup.Show();
+        Size shownSize = popup.Size;
+        foreach (Label label in popup.Controls.OfType<Label>())
+        {
+            Check(label.Height >= label.PreferredHeight, "Popup text was clipped at the current display DPI.");
+            Check(popup.ClientRectangle.Contains(label.Bounds), "Popup text extended outside the window.");
+        }
+
         popup.Close();
         Check(!popup.IsDisposed, "Closing the popup disposed it.");
         popup.Show();
+        Check(popup.Size == shownSize, "Reopening the popup changed its scaled size.");
         popup.Hide();
     }
 
@@ -426,6 +437,237 @@ internal static class SelfTests
         }
 
         throw new InvalidOperationException(message);
+    }
+
+    /// <summary>
+    /// Verifies the phone JSON contract, restart behavior, failure isolation, and atomic reads.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic snapshots.</param>
+    private static void TestJsonSnapshotPersistence(DateTimeOffset now)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "phone", "usage.json");
+        UsageSnapshot snapshot = new(
+            new LimitReading(LimitState.Available, 68, now.AddHours(2)),
+            new LimitReading(LimitState.Available, 44, now.AddDays(4)),
+            now,
+            null);
+        try
+        {
+            JsonSnapshotStore store = new(path);
+            Check(!File.Exists(path), "Constructing the phone store wrote an initial snapshot.");
+            store.Save(snapshot);
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path)))
+            {
+                System.Text.Json.JsonElement root = document.RootElement;
+                CheckJsonFields(root, "fiveHour", "weekly", "refreshedAt");
+                Check(root.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(now), "Phone refresh timestamp changed.");
+                foreach (string key in new[] { "fiveHour", "weekly" })
+                {
+                    CheckJsonFields(root.GetProperty(key), "available", "remaining", "resetsAt");
+                    Check(root.GetProperty(key).GetProperty("available").GetBoolean(), "Available phone limit was hidden.");
+                }
+
+                Check(root.GetProperty("fiveHour").GetProperty("remaining").GetInt32() == 68, "Phone five-hour quota differed from the UI.");
+                Check(root.GetProperty("weekly").GetProperty("remaining").GetInt32() == 44, "Phone weekly quota differed from the UI.");
+                Check(root.GetProperty("fiveHour").GetProperty("resetsAt").GetDateTimeOffset().EqualsExact(now.AddHours(2)), "Phone five-hour reset changed.");
+                Check(root.GetProperty("weekly").GetProperty("resetsAt").GetDateTimeOffset().EqualsExact(now.AddDays(4)), "Phone weekly reset changed.");
+            }
+
+            string lastGood = File.ReadAllText(path);
+            JsonSnapshotStore restarted = new(path);
+            Check(File.ReadAllText(path) == lastGood, "Restart discarded the last phone snapshot.");
+            restarted.Save(UsageSnapshot.Error("Sensitive error metadata must never be exported."));
+            restarted.Save(snapshot with { Weekly = new LimitReading(LimitState.Error, null, null) });
+            Check(File.ReadAllText(path) == lastGood, "An error snapshot replaced the last good phone JSON.");
+
+            // An incomplete temporary file left by a terminated process must never be promoted.
+            File.WriteAllText(path + ".tmp", "{incomplete");
+            restarted.Save(snapshot with { RefreshedAt = now.AddMinutes(5) });
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path)))
+            {
+                Check(document.RootElement.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(now.AddMinutes(5)), "Export timestamp did not advance after restart.");
+            }
+
+            Check(!File.Exists(path + ".tmp"), "JSON temporary file remained after success.");
+
+            // Test both directions of a missing limit, including inconsistent nullable input.
+            foreach (bool missingWeekly in new[] { true, false })
+            {
+                LimitReading available = new(LimitState.Available, 0, null);
+                LimitReading unavailable = missingWeekly
+                    ? new(LimitState.Unavailable, 99, now)
+                    : new(LimitState.Available, null, now);
+                store.Save(snapshot with
+                {
+                    FiveHour = missingWeekly ? available : unavailable,
+                    Weekly = missingWeekly ? unavailable : available,
+                });
+                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+                System.Text.Json.JsonElement present = document.RootElement.GetProperty(missingWeekly ? "fiveHour" : "weekly");
+                System.Text.Json.JsonElement missing = document.RootElement.GetProperty(missingWeekly ? "weekly" : "fiveHour");
+                Check(present.GetProperty("available").GetBoolean() && present.GetProperty("remaining").GetInt32() == 0, "An exhausted phone limit was marked unavailable.");
+                Check(present.GetProperty("resetsAt").ValueKind == System.Text.Json.JsonValueKind.Null, "A missing reset was invented.");
+                Check(!missing.GetProperty("available").GetBoolean(), "A missing phone limit was marked available.");
+                Check(missing.GetProperty("remaining").ValueKind == System.Text.Json.JsonValueKind.Null, "A missing phone limit became a percentage.");
+                Check(missing.GetProperty("resetsAt").ValueKind == System.Text.Json.JsonValueKind.Null, "An unavailable phone limit exposed stale reset data.");
+            }
+
+            store.Save(snapshot with
+            {
+                FiveHour = snapshot.FiveHour with { RemainingPercent = -10 },
+                Weekly = snapshot.Weekly with { RemainingPercent = 150 },
+            });
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path)))
+            {
+                Check(document.RootElement.GetProperty("fiveHour").GetProperty("remaining").GetInt32() == 0, "Export quota was not clamped at zero.");
+                Check(document.RootElement.GetProperty("weekly").GetProperty("remaining").GetInt32() == 100, "Export quota was not clamped at one hundred.");
+            }
+
+            store.Save(snapshot);
+            lastGood = File.ReadAllText(path);
+            using (FileStream lockedDestination = new(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                store.Save(snapshot with { RefreshedAt = now.AddMinutes(10) });
+                Check(File.ReadAllText(path) == lastGood, "A blocked replacement damaged the last good phone JSON.");
+            }
+
+            Check(!File.Exists(path + ".tmp"), "A failed replacement left temporary JSON behind.");
+            using (FileStream lockedTemporary = new(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                store.Save(snapshot with { RefreshedAt = now.AddMinutes(10) });
+                Check(File.ReadAllText(path) == lastGood, "A failed temporary write damaged the last good phone JSON.");
+            }
+
+            File.SetAttributes(path, FileAttributes.ReadOnly);
+            try
+            {
+                store.Save(snapshot with { RefreshedAt = now.AddMinutes(10) });
+                Check(File.ReadAllText(path) == lastGood, "A denied export changed the last good phone JSON.");
+            }
+            finally
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+            }
+
+            string blockedDirectory = Path.Combine(directory, "blocked");
+            File.WriteAllText(blockedDirectory, "A file blocks directory creation.");
+            new JsonSnapshotStore(Path.Combine(blockedDirectory, "usage.json")).Save(snapshot);
+            Check(File.ReadAllText(blockedDirectory) == "A file blocks directory creation.", "Failed directory creation modified an unrelated file.");
+
+            // Keep a phone-like reader open across each replacement. It must see a complete
+            // old document while a new reader sees the complete new document.
+            for (int index = 1; index <= 50; index++)
+            {
+                string before = File.ReadAllText(path);
+                using FileStream openRead = new(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                UsageSnapshot next = snapshot with { RefreshedAt = now.AddMinutes(20 + index) };
+                store.Save(next);
+                using StreamReader reader = new(openRead);
+                Check(reader.ReadToEnd() == before, "An in-flight phone read saw a modified document.");
+                using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+                Check(document.RootElement.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(next.RefreshedAt), "JSON replacement failed to recover or publish the new timestamp.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rejects extra phone JSON fields, including accidental snapshot or account metadata.
+    /// </summary>
+    /// <param name="element">The serialized JSON object.</param>
+    /// <param name="names">The only permitted property names.</param>
+    private static void CheckJsonFields(System.Text.Json.JsonElement element, params string[] names)
+    {
+        Check(
+            element.EnumerateObject().Select(property => property.Name).Order()
+                .SequenceEqual(names.Order()),
+            "Export JSON contained missing, extra, or incorrectly named fields.");
+    }
+
+
+    /// <summary>
+    /// Verifies default-off consent, persisted destination changes, restart, and settings failures.
+    /// </summary>
+    private static void TestJsonExportConsent(DateTimeOffset now)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string preferences = Path.Combine(directory, "settings.json");
+        string firstPath = Path.Combine(directory, "first", "usage.json");
+        string secondPath = Path.Combine(directory, "second", "usage.json");
+        UsageSnapshot snapshot = new(
+            new LimitReading(LimitState.Available, 68, now.AddHours(2)),
+            new LimitReading(LimitState.Available, 44, now.AddDays(4)), now, null);
+        try
+        {
+            JsonExportSettingsStore settings = new(preferences);
+            JsonExportController export = new(settings);
+            Check(!export.Settings.Enabled, "A fresh install enabled JSON export.");
+            Check(!File.Exists(preferences), "Loading defaults wrote preferences.");
+            Check(export.TryConfigure(new(false, firstPath)), "Could not configure a disabled destination.");
+            export.Save(snapshot);
+            Check(!File.Exists(firstPath), "Disabled export created a snapshot.");
+            Check(!Directory.Exists(Path.GetDirectoryName(firstPath)), "Disabled export created the output directory.");
+            Check(export.TryConfigure(new(true, firstPath)), "Could not enable export.");
+            Check(!File.Exists(firstPath), "Enabling export published a cached snapshot.");
+            export.Save(snapshot);
+            string lastGood = File.ReadAllText(firstPath);
+            JsonExportController restarted = new(new JsonExportSettingsStore(preferences));
+            Check(restarted.Settings.Enabled && restarted.Settings.OutputPath == firstPath, "Export preferences did not survive restart.");
+            Check(restarted.TryConfigure(new(true, secondPath)), "Could not change the export destination.");
+            restarted.Save(snapshot with { RefreshedAt = now.AddMinutes(5) });
+            Check(File.Exists(secondPath), "Configured output was not written.");
+            Check(File.ReadAllText(firstPath) == lastGood, "Changing output modified the old snapshot.");
+            Check(restarted.TryConfigure(restarted.Settings with { Enabled = false }), "Could not disable export.");
+            string secondGood = File.ReadAllText(secondPath);
+            restarted.Save(snapshot with { RefreshedAt = now.AddMinutes(10) });
+            Check(File.ReadAllText(secondPath) == secondGood, "Disabling changed the last published snapshot.");
+            Check(!new JsonExportController(settings).Settings.Enabled, "Disabling did not survive restart.");
+
+            // A blocked preference write must never grant new consent or switch the output path.
+            using (FileStream locked = new(preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Check(!restarted.TryConfigure(new(true, firstPath)), "A blocked settings write reported success.");
+                Check(!restarted.Settings.Enabled, "Failed preference persistence enabled export.");
+            }
+
+            Check(restarted.TryConfigure(new(true, secondPath)), "Could not re-enable export after recovery.");
+            using (FileStream locked = new(preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Check(!restarted.TryConfigure(new(true, firstPath)), "A blocked path change reported success.");
+                Check(restarted.Settings.OutputPath == secondPath, "A failed settings write changed the destination.");
+                Check(!restarted.TryConfigure(restarted.Settings with { Enabled = false }), "A blocked disable preference reported success.");
+                Check(!restarted.Settings.Enabled, "Failed persistence did not disable export for this session.");
+                restarted.Save(snapshot with { RefreshedAt = now.AddMinutes(15) });
+                Check(File.ReadAllText(secondPath) == secondGood, "A session-disabled export still wrote data.");
+            }
+
+            Check(restarted.TryConfigure(restarted.Settings with { Enabled = false }), "Could not persist disable after recovery.");
+            Check(!new JsonExportController(settings).Settings.Enabled, "Recovered disable was lost on restart.");
+            Check(!restarted.TryConfigure(new(true, "relative.json")), "A relative export destination was accepted.");
+            Check(!restarted.TryConfigure(new(true, firstPath + "\0")), "An invalid export destination was accepted.");
+            File.WriteAllText(preferences, "{broken");
+            Check(!new JsonExportController(settings).Settings.Enabled, "Corrupt settings enabled export.");
+            File.WriteAllText(preferences, "{\"Enabled\":true,\"OutputPath\":null}");
+            Check(!new JsonExportController(settings).Settings.Enabled, "Invalid settings enabled export.");
+            using (FileStream locked = new(preferences, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Check(!new JsonExportController(settings).Settings.Enabled, "Unreadable settings enabled export.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
     }
 
     private sealed class BlockingTextReader : TextReader

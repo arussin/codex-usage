@@ -5,11 +5,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly CodexRateLimitReader _reader = new();
     private readonly AlertStateStore _alertStateStore = new();
     private readonly UsageHistoryStore _usageHistoryStore = new();
+    private readonly JsonExportController _jsonExport = new();
     private readonly StartupRegistration _startupRegistration = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly NotifyIcon _weeklyIcon = new();
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _startupItem = new("Start with Windows");
+    private readonly ToolStripMenuItem _jsonExportItem = new("Enable export");
+    private readonly ToolStripMenuItem _jsonExportMenu = new("JSON export");
     private readonly UsagePopup _popup = new();
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 300_000 };
     private UsageSnapshot _snapshot = UsageSnapshot.Initial();
@@ -28,7 +31,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _startupItem.CheckOnClick = true;
         _startupItem.Checked = ReadStartupEnabled();
         _startupItem.Click += (_, _) => SetStartupEnabled(_startupItem.Checked);
-        _menu.Items.AddRange([refreshItem, _startupItem, new ToolStripSeparator(), exitItem]);
+        ToolStripMenuItem chooseOutputItem = new("Choose output file…");
+        chooseOutputItem.Click += (_, _) => ChooseJsonOutputFile();
+        _jsonExportItem.Checked = _jsonExport.Settings.Enabled;
+        _jsonExportItem.Click += (_, _) => ConfigureJsonExport(
+            _jsonExport.Settings with { Enabled = !_jsonExport.Settings.Enabled });
+        _jsonExportMenu.ToolTipText = _jsonExport.Settings.OutputPath;
+        _jsonExportMenu.DropDownItems.AddRange([_jsonExportItem, chooseOutputItem]);
+        _menu.Items.AddRange([refreshItem, _jsonExportMenu, _startupItem, new ToolStripSeparator(), exitItem]);
 
         _weeklyIcon.ContextMenuStrip = _menu;
         _weeklyIcon.Text = "Codex weekly: N/A";
@@ -44,6 +54,53 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _pollTimer.Tick += async (_, _) => await RefreshAsync();
         _pollTimer.Start();
         _ = RefreshAsync();
+    }
+
+    /// <summary>
+    /// Changes export preferences without publishing a cached snapshot as fresh data.
+    /// </summary>
+    private void ConfigureJsonExport(JsonExportSettings settings)
+    {
+        bool saved = _jsonExport.TryConfigure(settings);
+        _jsonExportItem.Checked = _jsonExport.Settings.Enabled;
+        _jsonExportMenu.ToolTipText = _jsonExport.Settings.OutputPath;
+        if (!saved)
+        {
+            MessageBox.Show(
+                settings.Enabled
+                    ? "Could not save the export settings. The previous settings remain in effect."
+                    : "JSON export is off for this session, but the preference could not be saved. Check it before the next launch.",
+                "Codex Usage Tray",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (settings.Enabled)
+        {
+            _ = RefreshAsync();
+        }
+    }
+
+    /// <summary>
+    /// Selects a JSON destination. Existing files are replaced only after a successful refresh.
+    /// </summary>
+    private void ChooseJsonOutputFile()
+    {
+        using SaveFileDialog dialog = new()
+        {
+            Title = "Choose JSON export file",
+            Filter = "JSON files (*.json)|*.json",
+            DefaultExt = "json",
+            AddExtension = true,
+            OverwritePrompt = true,
+            InitialDirectory = Path.GetDirectoryName(_jsonExport.Settings.OutputPath),
+            FileName = Path.GetFileName(_jsonExport.Settings.OutputPath),
+        };
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            ConfigureJsonExport(_jsonExport.Settings with { OutputPath = dialog.FileName });
+        }
     }
 
     /// <summary>
@@ -109,6 +166,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             _snapshot = await _reader.FetchAsync(_shutdown.Token);
+            _jsonExport.Save(_snapshot);
             _usageHistoryStore.Record(_snapshot.Weekly, _snapshot.RefreshedAt);
             ApplySnapshot(_snapshot);
             ShowLowUsageAlerts(_snapshot);

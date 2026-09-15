@@ -74,21 +74,7 @@ internal sealed class CodexRateLimitReader
     /// <returns>The normalized usage snapshot.</returns>
     private static async Task<UsageSnapshot> FetchCoreAsync(CancellationToken cancellationToken)
     {
-        string commandProcessor = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-        ProcessStartInfo startInfo = new(commandProcessor)
-        {
-            CreateNoWindow = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add("/d");
-        startInfo.ArgumentList.Add("/s");
-        startInfo.ArgumentList.Add("/c");
-        startInfo.ArgumentList.Add("codex app-server --stdio");
-
-        using Process process = new() { StartInfo = startInfo };
+        using Process process = new() { StartInfo = CreateStartInfo() };
         if (!process.Start())
         {
             throw new CodexUsageException("Could not start the Codex CLI.");
@@ -132,6 +118,67 @@ internal sealed class CodexRateLimitReader
             {
                 process.Kill(entireProcessTree: true);
             }
+        }
+    }
+
+    /// <summary>
+    /// Prefers the desktop application's bundled CLI, falling back to Codex on PATH.
+    /// </summary>
+    /// <returns>The hidden app-server process configuration.</returns>
+    private static ProcessStartInfo CreateStartInfo()
+    {
+        string? desktopCodex = FindDesktopCodex();
+        ProcessStartInfo startInfo = new(
+            desktopCodex ?? Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe")
+        {
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            WorkingDirectory = AppContext.BaseDirectory,
+        };
+        if (desktopCodex is not null)
+        {
+            startInfo.ArgumentList.Add("app-server");
+            startInfo.ArgumentList.Add("--stdio");
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("/d");
+            startInfo.ArgumentList.Add("/s");
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add("codex app-server --stdio");
+        }
+
+        return startInfo;
+    }
+
+    /// <summary>
+    /// Finds the newest CLI executable in immediate desktop version directories.
+    /// </summary>
+    /// <returns>The absolute executable path, or null when none is accessible.</returns>
+    private static string? FindDesktopCodex()
+    {
+        string binDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "OpenAI",
+            "Codex",
+            "bin");
+        try
+        {
+            return Directory.Exists(binDirectory)
+                ? Directory.EnumerateDirectories(binDirectory, "*", SearchOption.TopDirectoryOnly)
+                    .Select(directory => new FileInfo(Path.Combine(directory, "codex.exe")))
+                    .Where(file => file.Exists)
+                    .OrderByDescending(file => file.LastWriteTimeUtc)
+                    .Select(file => file.FullName)
+                    .FirstOrDefault()
+                : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

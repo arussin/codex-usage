@@ -29,6 +29,10 @@ internal sealed class UsagePopup : Form
     /// </summary>
     internal UsagePopup()
     {
+        SuspendLayout();
+        // Bounds below are designed at 96 DPI; scale text and layout together.
+        AutoScaleDimensions = new SizeF(96, 96);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = "Codex usage";
         ClientSize = new Size(360, 515);
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
@@ -59,7 +63,8 @@ internal sealed class UsagePopup : Form
                 _historyPlot.ClientRectangle,
                 _history,
                 _snapshot.Weekly,
-                _plotAllHistoryToggle.Checked);
+                _plotAllHistoryToggle.Checked,
+                _historyPlot.DeviceDpi);
         _copyPlotButton.SetBounds(12, 355, 100, 25);
         _copyPlotButton.Text = "Copy PNG";
         _copyPlotButton.Click += (_, _) => CopyPlotToClipboard();
@@ -104,6 +109,7 @@ internal sealed class UsagePopup : Form
         _countdownTimer.Tick += (_, _) => Render();
         _countdownTimer.Start();
         Deactivate += (_, _) => Hide();
+        ResumeLayout(performLayout: true);
         Render();
     }
 
@@ -208,20 +214,24 @@ internal sealed class UsagePopup : Form
     /// <param name="history">The retained weekly samples.</param>
     /// <param name="reading">The current weekly limit reading.</param>
     /// <param name="includeAllHistory">Whether every retained sample should be plotted.</param>
+    /// <param name="dpi">The plot control's display resolution.</param>
     private static void DrawHistory(
         Graphics graphics,
         Rectangle bounds,
         IReadOnlyList<UsageHistoryPoint> history,
         LimitReading reading,
-        bool includeAllHistory)
+        bool includeAllHistory,
+        int dpi)
     {
+        int Scale(int pixels) => (int)Math.Round(pixels * dpi / 96d);
+
         graphics.Clear(SystemColors.Window);
-        Rectangle titleBounds = new(42, 2, bounds.Width - 46, 16);
+        Rectangle titleBounds = new(Scale(42), Scale(2), bounds.Width - Scale(46), Scale(18));
         TextRenderer.DrawText(
             graphics,
             "%-left",
             SystemFonts.MessageBoxFont,
-            new Rectangle(2, 2, 36, 16),
+            new Rectangle(Scale(2), Scale(2), Scale(38), Scale(18)),
             SystemColors.GrayText,
             TextFormatFlags.Right | TextFormatFlags.NoPadding);
         TextRenderer.DrawText(
@@ -252,13 +262,13 @@ internal sealed class UsagePopup : Form
             plotEnd = plotStart.AddMinutes(1);
         }
 
-        Rectangle plot = new(42, 20, Math.Max(1, bounds.Width - 48), Math.Max(1, bounds.Height - 60));
-        Rectangle leftPeriodBounds = new(plot.Left, plot.Bottom + 18, plot.Width / 2, 16);
+        Rectangle plot = new(Scale(42), Scale(32), Math.Max(1, bounds.Width - Scale(58)), Math.Max(1, bounds.Height - Scale(72)));
+        Rectangle leftPeriodBounds = new(plot.Left, plot.Bottom + Scale(18), plot.Width / 2, Scale(18));
         Rectangle rightPeriodBounds = new(
             plot.Left + (plot.Width / 2),
-            plot.Bottom + 18,
+            plot.Bottom + Scale(18),
             plot.Width - (plot.Width / 2),
-            16);
+            Scale(18));
         TextRenderer.DrawText(
             graphics,
             plotStart.ToLocalTime().ToString("dd MMM HH:mm"),
@@ -284,7 +294,7 @@ internal sealed class UsagePopup : Form
                 graphics,
                 $"{percent}%",
                 axisFont,
-                new Rectangle(2, y - 7, 36, 14),
+                new Rectangle(Scale(2), y - Scale(7), Scale(36), Scale(14)),
                 SystemColors.GrayText,
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
@@ -299,7 +309,7 @@ internal sealed class UsagePopup : Form
                 graphics,
                 tickTime.ToString("dd"),
                 axisFont,
-                new Rectangle(x - 16, plot.Bottom + 2, 32, 14),
+                new Rectangle(x - Scale(16), plot.Bottom + Scale(2), Scale(32), Scale(14)),
                 SystemColors.GrayText,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
         }
@@ -315,7 +325,7 @@ internal sealed class UsagePopup : Form
             graphics,
             "100/7% per day",
             axisFont,
-            new Rectangle(plot.Left + 4, plot.Top + 3, 82, 14),
+            new Rectangle(plot.Left + Scale(4), plot.Top + Scale(3), Scale(82), Scale(14)),
             Color.Black,
             TextFormatFlags.Left | TextFormatFlags.NoPadding);
 
@@ -416,7 +426,7 @@ internal sealed class UsagePopup : Form
                 graphics,
                 $"Current {current}%",
                 axisFont,
-                new Rectangle(plot.Right - 72, currentY - 14, 70, 14),
+                new Rectangle(plot.Right - Scale(72), currentY - Scale(14), Scale(70), Scale(14)),
                 Color.Magenta,
                 TextFormatFlags.Right | TextFormatFlags.NoPadding);
         }
@@ -429,12 +439,12 @@ internal sealed class UsagePopup : Form
         int markerX = plot.Left + (int)Math.Round(markerPosition * plot.Width);
         using Pen markerPen = new(Color.Black, 1);
         graphics.DrawLine(markerPen, markerX, plot.Top, markerX, plot.Bottom);
-        int markerLabelX = Math.Clamp(markerX - 30, plot.Left, plot.Right - 60);
+        int markerLabelX = Math.Clamp(markerX - Scale(30), plot.Left, plot.Right - Scale(60));
         TextRenderer.DrawText(
             graphics,
             $"Today {markerTime.ToLocalTime():dd}",
             axisFont,
-            new Rectangle(markerLabelX, plot.Top + 1, 60, 14),
+            new Rectangle(markerLabelX, plot.Top + Scale(1), Scale(60), Scale(14)),
             Color.Black,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
     }
@@ -495,7 +505,8 @@ internal sealed class UsagePopup : Form
                     new Rectangle(Point.Empty, bitmap.Size),
                     _history,
                     _snapshot.Weekly,
-                    _plotAllHistoryToggle.Checked);
+                    _plotAllHistoryToggle.Checked,
+                    _historyPlot.DeviceDpi);
             }
 
             using MemoryStream png = new();
