@@ -1,23 +1,21 @@
-# Codex Usage Tray
+# Codex Usage Tray + JSON export
 
-A lightweight Windows tray app for Codex quotas, with an optional JSON feed for widgets and other consumers.
+**Windows tray quota monitor with an optional status feed for other tools.**
 
-Based on [Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage). The proposed `arussin/codex-usage` repository must be created as a real GitHub fork, preserving upstream history and its [MIT license](LICENSE).
+This is a direct fork of **[Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage)**. Upstream history and its MIT license are retained. Adam's additions provide default-off JSON export, CLI-discovery improvements, and display-scaling fixes. [Detailed tray documentation](docs/TRAY_DETAILS.md).
 
-## Get started
+## Use it
 
-**Release draft:** this candidate is built and tested locally but has not been published. Once approved, download the complete self-contained Windows x64 ZIP from the fork's verified release. Users do not need Git, an SDK, or compilation.
+The self-contained Windows x64 build is being prepared under [Releases](https://github.com/arussin/codex-usage/releases). **The first exporter build remains a draft until the final Windows and phone checks pass.** Do not use an unrelated upstream download expecting this exporter.
 
-1. Extract the entire build into a stable folder and run `CodexUsageTray.exe`.
-2. Have a working Codex CLI session signed in on this Windows account. The app prefers the desktop-bundled CLI and otherwise uses `codex` on PATH.
-3. Left-click the tray number for details; right-click for Refresh and settings.
+After a release is available:
 
-## Optional JSON export
+1. Extract the entire ZIP to a stable folder and run `CodexUsageTray.exe`. A working, signed-in Codex CLI is required; no .NET SDK is needed to run the release.
+2. Right-click the tray → **JSON export → Enable export**.
+3. Read `%LOCALAPPDATA%\CodexUsagePhone\usage.json`, or choose another dedicated status destination.
 
-Export is **off by default**. Right-click → **JSON export → Enable export**. Choose **Choose output file…** to change the destination.
+For my Android widgets: **[Cyberdeck Status for KWGT](https://github.com/arussin/kwgt-cyberdeck-status)** → [three-step setup](https://github.com/arussin/kwgt-cyberdeck-status/blob/main/docs/CODEX_SETUP.md).
 
-The compatibility default is `%LOCALAPPDATA%\CodexUsagePhone\usage.json`. Export follows the existing five-minute refresh, including startup and manual refreshes. No extra polling or server is added. Old files retain their timestamps after failures or disabling; consumers must check freshness.
+The tray uses its existing refresh cycle. Export failures preserve the old file and timestamp. Disabling export does not delete that file or stop any sharing service.
 
-[Export contract and settings](docs/JSON_EXPORT.md) · [Upstream usage and maintainer build guide](docs/UPSTREAM_GUIDE.md)
-
-The independent `arussin/kwgt-cyberdeck-status` project holds the companion widgets and guides. Tray source, patches, and binaries stay in this fork.
+[JSON contract](docs/JSON_EXPORT.md) · [Safe update/rollback](docs/INSTALL.md) · [Release checks](docs/RELEASE_CHECKS.md) · [MIT license](LICENSE)
