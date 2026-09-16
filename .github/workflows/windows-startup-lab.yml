@@ -1,0 +1,55 @@
+name: Isolated Windows startup lab
+
+on:
+  push:
+    branches: [diagnosis/autonomous-startup]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-release:
+    name: ${{ matrix.os }} / ${{ matrix.package }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-arm]
+        package: [single, folder]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Download the existing draft asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_KIND: ${{ matrix.package }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = Join-Path $env:RUNNER_TEMP 'draft-input'
+          New-Item -ItemType Directory -Path $destination | Out-Null
+          if ($env:PACKAGE_KIND -eq 'single') {
+            $tag = 'v0.1.0-json-export-preview.2'
+            $asset = 'CodexUsageTray-single-exe-win-x64-preview.zip'
+          } else {
+            $tag = 'v0.1.0-json-export-preview.1'
+            $asset = 'CodexUsageTray-JSON-export-win-x64-preview.zip'
+          }
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $destination
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the existing draft asset' }
+      - name: Exercise the unmodified release in a disposable account
+        shell: pwsh
+        env:
+          PACKAGE_KIND: ${{ matrix.package }}
+        run: ./tools/startup-lab/Test-HostedRelease.ps1 -Package $env:PACKAGE_KIND
+      - name: Retain only the synthetic test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: startup-lab-${{ matrix.os }}-${{ matrix.package }}
+          path: ${{ runner.temp }}/startup-lab-report.json
+          if-no-files-found: warn
+          retention-days: 14
