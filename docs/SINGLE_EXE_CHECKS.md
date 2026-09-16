@@ -46,10 +46,12 @@ export settings and custom path, manual refresh, disabled-export preservation,
 and return to the preserved folder build. The test account was restored to the
 original folder version with startup off.
 
-**Startup acceptance remains open.** One automatic launch used a temporary ZIP
-copy while the Run entry targeted the permanent candidate. The first missed
-startup and UI cleanup behavior remain unresolved. See the
-[separate-PC report and focused retest](SINGLE_EXE_ACCEPTANCE.md).
+**Controlled startup failed.** With the permanent candidate and matching Run
+entry verified, no tray process or new export appeared after sign-in, including
+an observation approximately two minutes after Explorer started. The cause is
+unknown. Disabling startup through the verified candidate menu passed, and the
+original build/settings were restored. See the
+[completed separate-PC report](SINGLE_EXE_ACCEPTANCE.md).
 
 Additional isolated diagnostics exercised the exact folder and single-EXE
 packages with synthetic files: 59 assertions passed across upgrade, rollback

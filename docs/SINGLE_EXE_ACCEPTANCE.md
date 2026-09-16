@@ -1,84 +1,82 @@
 # Single-EXE Windows acceptance
 
-Reviewed on 2026-09-16 from a supplied separate-PC test report. The exact
-single-EXE preview passed launch, layout, export and rollback checks. **Startup
-acceptance remains open.** The download remains a draft.
+Reviewed on 2026-09-16 from the completed separate-PC test report. **Controlled
+Windows startup failed; the cause is unknown.** Normal launch, layout, export,
+rollback and disabling startup through the menu passed. The download remains a
+draft and has not passed full acceptance.
 
 ## Package identity
 
 - Source: `14f8e8f22605e35464cac6d2cf614cbbccc57d68`.
 - ZIP SHA-256: `cd1096c1c02d64aede3c67e96028ddb26e485e076951d3f8355a0b575cdbbf58`.
 - EXE SHA-256: `5b46e1cf80690e57699c7dfc3a2277103a5fc855a90ed37e004016956e26740a`.
-- The report verifies the downloaded ZIP checksum, four extracted files and the
-  EXE checksum against bundled provenance. The earlier folder package was
-  preserved and backed up in full.
+- The report verifies the downloaded ZIP and EXE checksums and four extracted
+  files. The earlier 273-file folder package was preserved and backed up in
+  full. Testing used a separate Windows x64 PC at 150% display scaling.
 
 ## Results reported from the test PC
 
 | Check | Result |
 | --- | --- |
 | Normal launch, readings and popup layout | PASS; candidate process verified and user confirmed the UI |
-| Existing export preference and custom path | PASS; normal-account settings read and export update agreed |
+| Existing export preference and custom path | PASS; retained settings and valid export at the saved destination |
 | Manual refresh | PASS; valid reading and file modification time advanced |
-| Export disabled, followed by refresh | PASS; file hash and modification time were unchanged |
-| Automatic launch after sign-in | INCONCLUSIVE for acceptance; second attempt launched the correct binary once, but from a temporary ZIP extraction instead of the registered stable location |
-| Return to preserved folder build | PASS; backed-up files matched, original build ran once and updated the same destination; user confirmed readings |
-| Final test-account settings | PASS; final report records the original folder build, original export preference/path and startup off |
+| Export disabled, followed by refresh | PASS; file hash and modification time unchanged |
+| Controlled startup after sign-in | FAIL; verified permanent-path candidate and matching Run entry, no tray running before sign-out, no tray process or fresh export observed after sign-in |
+| Disable startup through the verified candidate menu | PASS; Run entry absent afterward, without registry editing during controlled cleanup |
+| Return to preserved folder build | PASS; original files matched backup, one original process exported to the saved destination and user confirmed readings |
+| Final test-account settings | PASS; original folder build, original export preference/path and startup off |
 
-The report contains intermediate statements that the candidate was still
-running. Its later rollback verification and final user confirmation establish
-the reported final state above. An initial sandboxed process could not read
-settings and was stopped; it is excluded from normal-launch acceptance.
+An initial sandboxed process could not access normal settings and was excluded
+from acceptance. Subsequent acceptance launches used the normal Windows account.
 
-## Startup findings
+## Controlled startup failure
 
-The first sign-in required manual launch. The second started a single instance
-automatically; its EXE matched the candidate checksum. Its process path was a
-temporary ZIP extraction, while the inspected Run entry targeted the permanent
-candidate folder. Explorer was the parent. The inspected Run/RunOnce and named
-Startup-folder locations contained no additional matching entry. No matching
-recent application crash event was found in the queried events.
+The extracted candidate's identity and permanent process path were checked.
+The Run entry matched that EXE. All tray instances were exited before sign-out.
+After sign-in, and again approximately two minutes after Explorer started,
+inspection found no tray process and no new export. The Run entry remained
+correct. No matching StartupApproved entry or tray-specific Application error
+was found in the inspected locations and events.
 
-These observations do not establish the cause of the first miss or the launch
-mechanism of the temporary copy. In particular, app restoration is unproven.
-The temporary EXE location must not be confused with native runtime extraction
-inside the .NET cache.
+The missing events do not prove that no other error occurred. The evidence does
+not distinguish Windows declining or delaying launch from a process that
+started and exited before observation. It also does not establish whether the
+cause is the package, app startup code or test-account environment.
 
-After the attempted UI cleanup, the stable candidate's Run entry remained.
-The test agent removed that exact entry and verified startup off. Therefore
-successful cleanup through the temporary copy's UI was not established.
+The candidate was then launched manually solely for cleanup. The user disabled
+startup through that verified copy's menu, and the test agent confirmed the Run
+entry was absent without editing the registry. That manual launch is not an
+automatic-startup pass. The original build and settings were restored afterward.
 
-Source review shows that the startup checkmark compares the registered command
-with the currently running EXE's path. A different copy can therefore appear
-unchecked while another location remains registered. This explains a possible
-misleading checkmark; it does not establish which menu actions occurred or why
-the temporary copy launched. Disabling through `SetEnabled(false)` removes the
-named entry. No application code was changed for this review.
+## Earlier temporary-copy observation
 
-## Remaining startup check
+An earlier attempt missed startup and was followed by a manual launch from the
+ZIP. At the next sign-in, a matching candidate appeared automatically from a
+temporary ZIP folder while its Run entry targeted the permanent candidate.
+The launch mechanism remains unknown. During that earlier cleanup, the test
+agent removed the remaining exact candidate Run entry.
 
-Use only the separate test account. Preserve the existing test build and record
-its settings before proceeding.
+The later controlled test supersedes that inconclusive acceptance result.
+Cleanup from the permanent-path candidate now passes. The temporary EXE location
+is separate from the expected native-runtime extraction inside the .NET cache.
 
-1. Exit the test tray. Verify no tray process remains. Run the candidate from
-   its fully extracted, permanent folder and verify the process path and hash.
-2. Enable **Start with Windows** from that verified process. Confirm that its
-   Run entry points to the same permanent EXE.
-3. Exit the tray before signing out. After sign-in, inspect the process before
-   manually launching anything. Confirm exactly one candidate at the permanent
-   path, with current readings and export.
-4. Turn startup off from that verified process and confirm the entry is absent.
-   Restore the recorded test-account build and settings. Record any discrepancy
-   without treating a temporary-copy launch as a pass.
+## Remaining startup work
+
+Investigate the failed controlled launch before requesting another acceptance
+pass. The next diagnostic needs evidence of whether Windows creates the
+candidate process at sign-in and, if it does, where startup exits. The existing
+post-sign-in process checks and event queries do not answer that question.
+Preserve the successful launch/export/layout/rollback results; repeat affected
+checks if a corrective build changes their behavior.
 
 ## Evidence limits
 
-The separate-PC results above are reported observations, not a new execution by
-this reviewing task. Independently, both exact packages passed 59 isolated
-assertions covering settings compatibility, upgrade/rollback, disabled/error
-snapshot preservation and the generated startup command. Those diagnostics
-used synthetic files and exited before normal tray startup; they cannot settle
-the sign-in anomaly.
+These are reported separate-PC observations, not a new execution by this
+reviewing task. Independently, both exact packages passed 59 isolated assertions
+covering settings compatibility, upgrade/rollback, disabled/error snapshot
+preservation and the generated startup command. Those diagnostics exited before
+normal tray startup and do not override the failed sign-in check.
 
 The report states that the main deployment, phone feed and Tailscale were
 unchanged. No private hostnames, endpoints, readings, screenshots or raw logs

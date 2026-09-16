@@ -6,10 +6,11 @@ Status on 2026-09-16: Windows downloads remain **draft prereleases**.
   the separate-PC Windows acceptance below applies to this package.
 - Single-EXE preview `.2`: source `14f8e8f22605e35464cac6d2cf614cbbccc57d68`;
   [packaging checks](SINGLE_EXE_CHECKS.md) and separate-PC launch, layout,
-  export and rollback checks passed. Startup acceptance remains open because
-  the automatic launch used a temporary ZIP copy rather than the registered
-  permanent path. [Detailed results](SINGLE_EXE_ACCEPTANCE.md). The application
-  C# source is unchanged from preview `.1`.
+  export and rollback checks passed. **Controlled Windows startup failed**
+  despite a verified permanent-path EXE and matching Run entry. The cause is
+  unknown. Disabling startup through the menu passed.
+  [Detailed results](SINGLE_EXE_ACCEPTANCE.md). The application C# source is
+  unchanged from preview `.1`.
 
 Both packages retain their own checksums and acceptance scope. The folder
 preview remains available to its owner while the new packaging is checked.
@@ -63,9 +64,11 @@ Windows configuration or display scale.
   export settings, manual refresh and disabled-export behavior on a separate PC.
 - [x] Switch from the preserved folder package to the single EXE and back; verify
   readings and the saved export destination. This used separate package folders.
-- [ ] Resolve the single-EXE startup anomaly with a controlled sign-in from its
-  permanent path, then verify the UI removes that startup entry. Follow the
-  [focused startup check](SINGLE_EXE_ACCEPTANCE.md#remaining-startup-check).
+- [x] Verify that disabling startup through the permanent-path candidate's
+  menu removes its Run entry; restore the original test-account settings.
+- [ ] Diagnose and resolve the failed controlled single-EXE startup, then verify
+  automatic launch at sign-in. The completed test failed; it is no longer an
+  unperformed check. See [startup findings](SINGLE_EXE_ACCEPTANCE.md).
 - [ ] Connect a phone to that candidate export through its ordinary private
   hostname and confirm reads across real file replacements.
 - [ ] Confirm Android stale, no-data, unavailable, low, exhausted and FULL states
