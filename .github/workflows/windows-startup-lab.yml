@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  exact-release:
+  source-build:
     name: ${{ matrix.os }} / ${{ matrix.package }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 12
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -22,37 +22,34 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - name: Download the existing draft asset
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_KIND: ${{ matrix.package }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $destination = Join-Path $env:RUNNER_TEMP 'draft-input'
-          New-Item -ItemType Directory -Path $destination | Out-Null
-          if ($env:PACKAGE_KIND -eq 'single') {
-            $assetId = 567207726
-            $asset = 'CodexUsageTray-single-exe-win-x64-preview.zip'
-          } else {
-            $assetId = 566664016
-            $asset = 'CodexUsageTray-JSON-export-win-x64-preview.zip'
-          }
-          # Use the already verified asset ID; draft releases are absent from
-          # tag/list queries for a read-only installation token.
-          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/octet-stream' }
-          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$assetId"
-          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile (Join-Path $destination $asset)
-      - name: Exercise the unmodified release in a disposable account
+          path: lab
+      - name: Check out the published source revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.package == 'single' && '14f8e8f22605e35464cac6d2cf614cbbccc57d68' || 'ade5f362abcab194e90678a15bd14f56c9bd29cf' }}
+          path: source-revision
+      - name: Install the original SDK version
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.401'
+      - name: Rebuild without changing application source
         shell: pwsh
         env:
           PACKAGE_KIND: ${{ matrix.package }}
-        run: ./tools/startup-lab/Test-HostedRelease.ps1 -Package $env:PACKAGE_KIND
-      - name: Retain only the synthetic test report
+        run: ./lab/tools/startup-lab/Build-HostedRelease.ps1 -Package $env:PACKAGE_KIND -SourceDirectory ./source-revision
+      - name: Exercise the rebuild with synthetic input
+        shell: pwsh
+        env:
+          PACKAGE_KIND: ${{ matrix.package }}
+        run: ./lab/tools/startup-lab/Test-HostedRelease.ps1 -Package $env:PACKAGE_KIND
+      - name: Retain only build metadata and the synthetic test report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: startup-lab-${{ matrix.os }}-${{ matrix.package }}
-          path: ${{ runner.temp }}/startup-lab-report.json
+          path: |
+            ${{ runner.temp }}/startup-lab-report.json
+            ${{ runner.temp }}/startup-lab-build.json
           if-no-files-found: warn
           retention-days: 14

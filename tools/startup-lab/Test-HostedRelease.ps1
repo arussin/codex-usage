@@ -15,7 +15,7 @@ if ($env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:DOTNET_STARTUP_HOOKS) {
 $report = [ordered]@{
     schemaVersion = 1
     package = $Package
-    scope = 'Unmodified release, synthetic CLI, disposable GitHub-hosted Windows VM. Not a Windows sign-in test.'
+    scope = 'Rebuild of published source, synthetic CLI, disposable GitHub-hosted Windows VM. Not a Windows sign-in test.'
     result = 'incomplete'
     stage = 'preflight'
     checks = [ordered]@{}
@@ -100,34 +100,14 @@ try {
         sameSessionExplorerCount = @(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -eq (Get-Process -Id $PID).SessionId).Count
         candidateArchitecture = 'x64'
     }
-    $report.stage = 'verify-release'
-    if ($Package -eq 'single') {
-        $assetName = 'CodexUsageTray-single-exe-win-x64-preview.zip'
-        $expectedZipHash = 'cd1096c1c02d64aede3c67e96028ddb26e485e076951d3f8355a0b575cdbbf58'
-    } else {
-        $assetName = 'CodexUsageTray-JSON-export-win-x64-preview.zip'
-        $expectedZipHash = '47496a9ea1b2095d2357e460467ce82c5b13e8d8e6798451833ed78be39da086'
-    }
-    $archivePath = Join-Path (Join-Path $env:RUNNER_TEMP 'draft-input') $assetName
-    $report.zipSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    Assert-Lab ($report.zipSha256 -eq $expectedZipHash) 'exactDraftZipHash'
+    $report.stage = 'verify-rebuild'
+    $metadata = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'startup-lab-build.json') -Raw | ConvertFrom-Json
     $packageRoot = Join-Path $env:RUNNER_TEMP 'release with spaces'
-    Assert-Lab (-not (Test-Path -LiteralPath $packageRoot)) 'newExtractionDirectory'
-    $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
-    try {
-        foreach ($entry in $archive.Entries) {
-            $target = [IO.Path]::GetFullPath((Join-Path $packageRoot $entry.FullName))
-            if (-not $target.StartsWith($packageRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-                throw 'Archive entry is outside the extraction directory.'
-            }
-        }
-    } finally { $archive.Dispose() }
-    [IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $packageRoot)
     $script:candidate = Join-Path $packageRoot 'CodexUsageTray.exe'
     $report.exeSha256 = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($Package -eq 'single') {
-        Assert-Lab ($report.exeSha256 -eq '5b46e1cf80690e57699c7dfc3a2277103a5fc855a90ed37e004016956e26740a') 'exactSingleExeHash'
-    }
+    Assert-Lab ($metadata.package -eq $Package -and $metadata.exeSha256 -eq $report.exeSha256) 'rebuiltExecutableIdentity'
+    $report.sourceCommit = $metadata.sourceCommit
+    $report.exactSingleExeDraftHashMatch = $metadata.exactSingleExeDraftHashMatch
     $report.signatureStatus = (Get-AuthenticodeSignature -LiteralPath $candidate).Status.ToString()
     $report.quotedStartupCommandLength = ('"' + $candidate + '"').Length
 
@@ -216,7 +196,7 @@ try {
         @(
             "## $Package release: $($report.result)",
             '',
-            'Unmodified draft binary with synthetic CLI input on a disposable hosted runner.',
+            'Rebuilt published source with synthetic CLI input on a disposable hosted runner.',
             "Stage: $($report.stage).",
             '',
             '**This is not a Windows sign-in test and does not clear the Surface startup failure.**',
