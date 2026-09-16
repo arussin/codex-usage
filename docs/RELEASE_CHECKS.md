@@ -5,9 +5,11 @@ Status on 2026-09-16: Windows downloads remain **draft prereleases**.
 - Folder preview `.1`: source `ade5f362abcab194e90678a15bd14f56c9bd29cf`;
   the separate-PC Windows acceptance below applies to this package.
 - Single-EXE preview `.2`: source `14f8e8f22605e35464cac6d2cf614cbbccc57d68`;
-  [packaging checks](SINGLE_EXE_CHECKS.md) passed. Its normal launch and sign-in
-  startup check on a separate PC remain pending. The application C# source is
-  unchanged from preview `.1`.
+  [packaging checks](SINGLE_EXE_CHECKS.md) and separate-PC launch, layout,
+  export and rollback checks passed. Startup acceptance remains open because
+  the automatic launch used a temporary ZIP copy rather than the registered
+  permanent path. [Detailed results](SINGLE_EXE_ACCEPTANCE.md). The application
+  C# source is unchanged from preview `.1`.
 
 Both packages retain their own checksums and acceptance scope. The folder
 preview remains available to its owner while the new packaging is checked.
@@ -57,12 +59,13 @@ Windows configuration or display scale.
 
 ## Remaining acceptance checks
 
-- [ ] On a separate PC/account, verify normal launch, popup/usage, export and
-  sign-in startup with the exact single-EXE preview. Earlier folder-package
-  results do not establish acceptance of the repackaged executable.
-- [ ] Verify the documented update/rollback procedure in a separate environment
-  with an older installation. The tested fresh installation had no older version;
-  rollback remains NOT TESTED.
+- [x] Verify the exact single-EXE preview's normal launch, popup/usage, retained
+  export settings, manual refresh and disabled-export behavior on a separate PC.
+- [x] Switch from the preserved folder package to the single EXE and back; verify
+  readings and the saved export destination. This used separate package folders.
+- [ ] Resolve the single-EXE startup anomaly with a controlled sign-in from its
+  permanent path, then verify the UI removes that startup entry. Follow the
+  [focused startup check](SINGLE_EXE_ACCEPTANCE.md#remaining-startup-check).
 - [ ] Connect a phone to that candidate export through its ordinary private
   hostname and confirm reads across real file replacements.
 - [ ] Confirm Android stale, no-data, unavailable, low, exhausted and FULL states

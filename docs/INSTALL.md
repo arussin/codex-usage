@@ -13,7 +13,11 @@ Requires Windows x64 and a signed-in Codex CLI on the same Windows account. The 
 
 The **single-EXE** package bundles the app and .NET runtime in
 `CodexUsageTray.exe`. Accompanying files provide the license, instructions and
-build information. Windows automatically extracts native runtime components to
+build information. Use **Extract All** before running this package too. Opening
+the EXE directly inside the ZIP can run a temporary copy. Enable startup only
+after launching from the permanent installation folder.
+
+Windows automatically extracts native runtime components to
 the per-user .NET temporary cache on first launch; keep that cache writable.
 
 The earlier **folder** package has many DLLs beside the EXE. Keep all of them

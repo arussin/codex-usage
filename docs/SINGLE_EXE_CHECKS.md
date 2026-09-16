@@ -39,21 +39,23 @@ The build uses [single-file settings](BUILD.md). Native runtime files still
 extract automatically into the per-user .NET cache; the smaller visible file
 count does not remove those runtime dependencies.
 
-## Separate-PC check still needed
+## Separate-PC acceptance
 
-On the separate test PC/account, exit the earlier test tray and keep its full
-folder as a backup. Extract the new ZIP into another stable folder, then check:
+The exact package passed normal launch, user-confirmed readings/layout, retained
+export settings and custom path, manual refresh, disabled-export preservation,
+and return to the preserved folder build. The test account was restored to the
+original folder version with startup off.
 
-1. Normal launch displays usage and the popup fits.
-2. The existing export preference/path is retained; Refresh advances the output
-   timestamp. Disabling export keeps the old timestamp unchanged. Restore the
-   recorded export preference/path after this check.
-3. Start with Windows launches this EXE after sign-in. Turn that test startup
-   setting off afterward, or restore its recorded prior value.
-4. Exit the new version, launch the saved folder version, and verify readings
-   and the recorded export settings. This checks rollback to the tested folder
-   preview on that account. Restore the chosen test version/settings afterward.
+**Startup acceptance remains open.** One automatic launch used a temporary ZIP
+copy while the Run entry targeted the permanent candidate. The first missed
+startup and UI cleanup behavior remain unresolved. See the
+[separate-PC report and focused retest](SINGLE_EXE_ACCEPTANCE.md).
 
-These checks must not replace the live phone-feed deployment. Record any failure
-or skipped item. Candidate-to-phone and Android synthetic-state acceptance remain
-separate checks in the [release checklist](RELEASE_CHECKS.md).
+Additional isolated diagnostics exercised the exact folder and single-EXE
+packages with synthetic files: 59 assertions passed across upgrade, rollback
+and reopening. Both generated the correct startup command for their running
+EXE. These diagnostics exited before normal tray startup and do not resolve
+the separate-PC sign-in findings.
+
+Candidate-to-phone and Android synthetic-state acceptance remain separate
+checks in the [release checklist](RELEASE_CHECKS.md).
