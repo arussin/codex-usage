@@ -1,8 +1,16 @@
 # Release verification
 
-Status on 2026-09-16: the Windows download remains a **draft prerelease**.
-Its source commit is `ade5f362abcab194e90678a15bd14f56c9bd29cf`.
-Later changes on `main` update documentation only.
+Status on 2026-09-16: Windows downloads remain **draft prereleases**.
+
+- Folder preview `.1`: source `ade5f362abcab194e90678a15bd14f56c9bd29cf`;
+  the separate-PC Windows acceptance below applies to this package.
+- Single-EXE preview `.2`: source `14f8e8f22605e35464cac6d2cf614cbbccc57d68`;
+  [packaging checks](SINGLE_EXE_CHECKS.md) passed. Its normal launch and sign-in
+  startup check on a separate PC remain pending. The application C# source is
+  unchanged from preview `.1`.
+
+Both packages retain their own checksums and acceptance scope. The folder
+preview remains available to its owner while the new packaging is checked.
 
 ## Verified
 
@@ -13,7 +21,7 @@ Later changes on `main` update documentation only.
   with .NET SDK 10.0.401. The packaged runtime is 10.0.12.
 - Downloaded draft assets matched their SHA-256 checksums and passed ZIP integrity
   checks. The Windows ZIP contains the complete runtime and license.
-- The exact draft passed the exercised acceptance checks on a separate Windows
+- The exact folder preview passed the exercised acceptance checks on a separate Windows
   x64 PC at 150% scaling: normal launch and usage, popup layout, default-off and
   enabled export, custom destination, manual/five-minute refresh, enabled and
   disabled preferences across restart, and startup after real sign-in.
@@ -49,6 +57,9 @@ Windows configuration or display scale.
 
 ## Remaining acceptance checks
 
+- [ ] On a separate PC/account, verify normal launch, popup/usage, export and
+  sign-in startup with the exact single-EXE preview. Earlier folder-package
+  results do not establish acceptance of the repackaged executable.
 - [ ] Verify the documented update/rollback procedure in a separate environment
   with an older installation. The tested fresh installation had no older version;
   rollback remains NOT TESTED.
@@ -60,5 +71,6 @@ Windows configuration or display scale.
 
 See [installation and rollback](INSTALL.md), [JSON behavior](JSON_EXPORT.md),
 and [widget checks](https://github.com/arussin/kwgt-cyberdeck-status/blob/main/docs/RELEASE_CHECKLIST.md).
+Maintainers can use the [isolated build instructions](BUILD.md).
 An upstream PR is a separate decision; the complete candidate also contains
 earlier CLI-discovery and DPI changes.
