@@ -15,6 +15,12 @@ entry point, export off by default, opt-in export, duplicate-instance handling,
 the real five-minute timer, preservation of old readings on error, and recovery
 after relaunch. Only build metadata and the synthetic result are uploaded.
 
+A separate experiment registers two temporary entries inside the disposable VM
+and calls Windows' RemoteApp startup dispatcher. One entry is a harmless control;
+the other starts the candidate. The report distinguishes a dispatcher no-op
+from candidate launch and removes both entries afterward. This is not a sign-in
+test or a proposed installation workaround.
+
 This does **not** perform Windows sign-in, inspect the Surface, validate visual
 layout, or test a phone. Hosted runners have a different security configuration.
 A pass does not resolve the recorded Surface startup failure. Test processes

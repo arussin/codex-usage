@@ -20,8 +20,12 @@ if (Test-Path -LiteralPath $publish) { throw 'Publish directory must be new' }
 New-Item -ItemType Directory -Path $copyRoot -Force | Out-Null
 $sourceHashes = @()
 Get-ChildItem -LiteralPath $sourceRoot -File | Where-Object { $_.Name -match '\.(cs|csproj)$|^LICENSE$' } | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $copyRoot $_.Name)
-    $sourceHashes += @{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() }
+    # The original release checkout used LF. Hosted Windows checkout uses CRLF;
+    # embedded PDB source checksums make that a real binary reproducibility input.
+    $copiedFile = Join-Path $copyRoot $_.Name
+    $contents = [IO.File]::ReadAllText($_.FullName).Replace("`r`n", "`n")
+    [IO.File]::WriteAllText($copiedFile, $contents, [Text.UTF8Encoding]::new($false))
+    $sourceHashes += @{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $copiedFile).Hash.ToLowerInvariant() }
 }
 @{ sdk = @{ version = '10.0.401'; rollForward = 'disable' } } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $buildRoot 'global.json')
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
@@ -61,6 +65,7 @@ try {
         exactSingleExeDraftHashMatch = $match
         result = 'build-passed'
         applicationSourceModified = $false
+        buildSourceLineEndings = 'LF, matching the original release build checkout'
         source = 'Rebuilt from public source; draft assets were not read or published.'
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'startup-lab-build.json')
 } finally { Pop-Location }

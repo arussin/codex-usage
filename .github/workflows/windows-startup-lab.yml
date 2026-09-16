@@ -43,6 +43,11 @@ jobs:
         env:
           PACKAGE_KIND: ${{ matrix.package }}
         run: ./lab/tools/startup-lab/Test-HostedRelease.ps1 -Package $env:PACKAGE_KIND
+      - name: Observe Windows startup dispatch with a separate control
+        shell: pwsh
+        env:
+          PACKAGE_KIND: ${{ matrix.package }}
+        run: ./lab/tools/startup-lab/Test-StartupDispatcher.ps1 -Package $env:PACKAGE_KIND
       - name: Retain only build metadata and the synthetic test report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -51,5 +56,6 @@ jobs:
           path: |
             ${{ runner.temp }}/startup-lab-report.json
             ${{ runner.temp }}/startup-lab-build.json
+            ${{ runner.temp }}/startup-dispatch-report.json
           if-no-files-found: warn
           retention-days: 14
