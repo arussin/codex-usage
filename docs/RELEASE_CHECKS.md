@@ -1,6 +1,6 @@
 # Release verification
 
-Status on 2026-09-15: the Windows download remains a **draft prerelease**.
+Status on 2026-09-16: the Windows download remains a **draft prerelease**.
 Its source commit is `ade5f362abcab194e90678a15bd14f56c9bd29cf`.
 Later changes on `main` update documentation only.
 
@@ -13,6 +13,11 @@ Later changes on `main` update documentation only.
   with .NET SDK 10.0.401. The packaged runtime is 10.0.12.
 - Downloaded draft assets matched their SHA-256 checksums and passed ZIP integrity
   checks. The Windows ZIP contains the complete runtime and license.
+- The exact draft passed the exercised acceptance checks on a separate Windows
+  x64 PC at 150% scaling: normal launch and usage, popup layout, default-off and
+  enabled export, custom destination, manual/five-minute refresh, enabled and
+  disabled preferences across restart, and startup after real sign-in.
+  [Detailed results and evidence limits](WINDOWS_ACCEPTANCE.md).
 - An isolated test app exercised the production tray menu and export controller
   with synthetic readings and separate files:
   - Export starts off and creates no snapshot until enabled.
@@ -37,18 +42,16 @@ registration with fixtures, and uses a separate entry point. Production menu,
 popup rendering and export-controller source are unchanged. Test-only window
 ownership, taskbar visibility and placement allow inspection of the popup.
 
-These checks establish behavior of that source in isolation. They do **not**
-establish clean-install compatibility, normal CLI discovery or startup behavior
-of the exact release binary. They also do not cover every display scale.
+The isolated checks establish behavior of that source in isolation. Normal
+launch, usage and startup of the exact binary were separately exercised in the
+[Windows acceptance test](WINDOWS_ACCEPTANCE.md). Neither test covers every
+Windows configuration or display scale.
 
 ## Remaining acceptance checks
 
-- [ ] On a clean supported Windows account or separate machine, extract the
-  complete draft ZIP and verify signed-in CLI discovery, normal launch and sizing.
-- [ ] Repeat opt-in, custom path, manual/automatic refresh and disable/restart
-  checks using that exact binary.
-- [ ] Verify Start with Windows after sign-in and the documented update/rollback
-  procedure in that separate environment.
+- [ ] Verify the documented update/rollback procedure in a separate environment
+  with an older installation. The tested fresh installation had no older version;
+  rollback remains NOT TESTED.
 - [ ] Connect a phone to that candidate export through its ordinary private
   hostname and confirm reads across real file replacements.
 - [ ] Confirm Android stale, no-data, unavailable, low, exhausted and FULL states

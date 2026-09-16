@@ -5,7 +5,7 @@ Requires Windows x64 and a signed-in Codex CLI on the same Windows account. The 
 ## Install
 
 1. Get the complete Windows x64 ZIP and its checksum from [Releases](https://github.com/arussin/codex-usage/releases). Check the repository README for current download availability.
-2. Extract all files to a stable directory, such as `%LOCALAPPDATA%\Programs\CodexUsageTray`. Keep the bundled runtime files together; the EXE alone is not sufficient. No separate .NET installation is required for this build.
+2. Use **Extract All** to unpack the ZIP into a stable directory, such as `%LOCALAPPDATA%\Programs\CodexUsageTray`. Open that extracted folder before running the app. Running the EXE inside the ZIP can leave required files such as `CodexUsageTray.dll` missing. Keep all bundled files together; no separate .NET installation is required for this build.
 3. Run `CodexUsageTray.exe`. Left-click the tray number to view your usage.
 4. To start the app automatically at sign-in, right-click the tray and select **Start with Windows**.
 
