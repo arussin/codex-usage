@@ -1,9 +1,10 @@
 # Single-EXE Windows acceptance
 
-Reviewed on 2026-09-16 from the completed separate-PC test report. **Controlled
-Windows startup failed; the cause is unknown.** Normal launch, layout, export,
-rollback and disabling startup through the menu passed. The download remains a
-draft and has not passed full acceptance.
+Reviewed on 2026-09-16 from the separate-PC acceptance and controlled trace
+reports. **Windows did not create the candidate process during the observed
+startup window; the reason remains unknown.** Normal launch, layout, export,
+rollback and menu cleanup passed. The download remains a draft and has not
+passed full acceptance.
 
 ## Package identity
 
@@ -39,15 +40,50 @@ inspection found no tray process and no new export. The Run entry remained
 correct. No matching StartupApproved entry or tray-specific Application error
 was found in the inspected locations and events.
 
-The missing events do not prove that no other error occurred. The evidence does
-not distinguish Windows declining or delaying launch from a process that
-started and exited before observation. It also does not establish whether the
-cause is the package, app startup code or test-account environment.
+Those initial checks could not distinguish an omitted or delayed launch from
+a short-lived process. The later controlled trace below resolves that question
+for its captured window, while leaving the reason for non-launch unresolved.
 
 The candidate was then launched manually solely for cleanup. The user disabled
 startup through that verified copy's menu, and the test agent confirmed the Run
 entry was absent without editing the registry. That manual launch is not an
 automatic-startup pass. The original build and settings were restored afterward.
+
+## Controlled process trace
+
+The separate-PC report records these results using the unchanged preview.2 EXE:
+
+- Candidate checksum and exact quoted permanent-path registration verified;
+  no tray instances running before sign-out.
+- Capture/decode control passed: a harmless process's creation, executable
+  identity and exit code 37 were decoded successfully.
+- Continuous coverage from approximately 74 seconds before the new Explorer
+  start through 11 minutes 20 seconds afterward; old Explorer exit and new
+  Explorer creation both captured. Zero lost events or buffers reported.
+- No candidate creation, candidate rundown or other tray copy observed before
+  the labeled manual control. Interactive process checks also found no tray
+  through 10 minutes 9 seconds after Explorer start.
+- Manual creation at approximately 10 minutes 52 seconds after Explorer start
+  was captured from a normal-user PowerShell parent. The full command path
+  identified the permanent candidate. It remained present at the ending
+  rundown approximately 28 seconds later. No actual candidate exit was captured;
+  the rundown status field is not an exit code.
+- The user then successfully used the candidate menu to disable startup and
+  exit. Original build, export preferences and startup-off state were restored.
+  Diagnostic recording was saved, decoded and confirmed stopped.
+
+This supports **no automatic candidate launch observed during the verified
+window**, rather than a demonstrated crash or duplicate-instance exit. It does
+not explain Windows' selection or delay, exclude a launch after the window, or
+establish that the startup registration will work reliably. Manual launch is a
+positive control, not an automatic-startup pass. The next analysis concerns
+Windows' startup processing; no corrective app change is justified yet.
+
+The local review of earlier logs also identified three .NET Runtime 1023 errors
+as missing `CodexUsageTray.dll` in temporary extraction of the old folder-build
+ZIP. Both earlier Shell-Core launch pairs predated the controlled test and
+contained basename-only commands. None establishes a failure of this candidate
+during the controlled sign-in.
 
 ## Earlier temporary-copy observation
 
@@ -63,17 +99,21 @@ is separate from the expected native-runtime extraction inside the .NET cache.
 
 ## Remaining startup work
 
-Investigate the failed controlled launch before requesting another acceptance
-pass. The next diagnostic needs evidence of whether Windows creates the
-candidate process at sign-in and, if it does, where startup exits. The existing
-post-sign-in process checks and event queries do not answer that question.
-Preserve the successful launch/export/layout/rollback results; repeat affected
-checks if a corrective build changes their behavior.
+Inspect the already captured Shell-Core startup stages to determine whether
+Windows enumerated the relevant Run list, progressed through its delayed work,
+or recorded an execution failure. Compare relevant startup policy and account
+context without changing them. The available report has not established a
+specific policy, delay condition or registration defect.
+
+Preserve the successful launch/export/layout/rollback results. Request another
+sign-in only when a specific hypothesis or corrective change warrants it; repeat
+affected app checks if a corrective build changes their behavior.
 
 ## Evidence limits
 
 These are reported separate-PC observations, not a new execution by this
-reviewing task. Independently, both exact packages passed 59 isolated assertions
+reviewing task. Raw traces remain local to the test PC; only the sanitized
+results were supplied. Independently, both exact packages passed 59 isolated assertions
 covering settings compatibility, upgrade/rollback, disabled/error snapshot
 preservation and the generated startup command. Those diagnostics exited before
 normal tray startup and do not override the failed sign-in check.
