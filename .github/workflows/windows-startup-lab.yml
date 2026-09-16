@@ -32,14 +32,17 @@ jobs:
           $destination = Join-Path $env:RUNNER_TEMP 'draft-input'
           New-Item -ItemType Directory -Path $destination | Out-Null
           if ($env:PACKAGE_KIND -eq 'single') {
-            $tag = 'v0.1.0-json-export-preview.2'
+            $assetId = 567207726
             $asset = 'CodexUsageTray-single-exe-win-x64-preview.zip'
           } else {
-            $tag = 'v0.1.0-json-export-preview.1'
+            $assetId = 566664016
             $asset = 'CodexUsageTray-JSON-export-win-x64-preview.zip'
           }
-          gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $destination
-          if ($LASTEXITCODE -ne 0) { throw 'Could not read the existing draft asset' }
+          # Use the already verified asset ID; draft releases are absent from
+          # tag/list queries for a read-only installation token.
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/octet-stream' }
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$assetId"
+          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile (Join-Path $destination $asset)
       - name: Exercise the unmodified release in a disposable account
         shell: pwsh
         env:
