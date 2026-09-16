@@ -6,7 +6,7 @@ Keep your Codex quota visible in the Windows system tray. Open the popup for fiv
 
 Requires **Windows x64** and a **signed-in Codex CLI** on the same Windows account. The app finds the desktop-bundled CLI or uses `codex` on PATH.
 
-**Windows downloads are not yet publicly available.** Check [Releases](https://github.com/arussin/codex-usage/releases) for availability. Builds include the .NET runtime; no SDK or compilation is needed.
+**[Download the Windows single-EXE preview](https://github.com/arussin/codex-usage/releases/tag/v0.1.0-json-export-preview.2).** The .NET runtime is included; no SDK or compilation is needed.
 
 1. Extract the complete release ZIP into a stable folder.
 2. Run `CodexUsageTray.exe`.

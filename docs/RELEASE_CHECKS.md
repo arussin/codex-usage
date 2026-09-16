@@ -1,6 +1,6 @@
-# Release verification
+# Pre-publication verification
 
-Status on 2026-09-16: Windows downloads remain **draft prereleases**.
+This records checks performed before publication on 2026-09-16. For current downloads, see the [Windows preview release](https://github.com/arussin/codex-usage/releases/tag/v0.1.0-json-export-preview.2).
 
 - Folder preview `.1`: source `ade5f362abcab194e90678a15bd14f56c9bd29cf`;
   the separate-PC Windows acceptance below applies to this package.
