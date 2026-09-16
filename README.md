@@ -1,6 +1,8 @@
 # Codex Usage Tray
 
-Keep your Codex quota visible in the Windows system tray. Open the popup for five-hour and weekly limits, reset times, and a weekly usage graph. Export a small JSON feed for widgets and other tools.
+A fork of **[Tooblippe’s Codex Usage Tray](https://github.com/Tooblippe/codex-usage)**. The original Windows tray app, usage popup, five-hour and weekly limits, reset times, and graph come from upstream.
+
+**This fork adds optional JSON snapshot export** for widgets and other tools. It also includes CLI discovery and display-scaling fixes, plus a single-EXE download with the .NET runtime included.
 
 ## Get started
 
@@ -26,4 +28,4 @@ The feed contains quota availability, remaining percentages, reset times, and a 
 
 ## Credits
 
-Forked from [Tooblippe/codex-usage](https://github.com/Tooblippe/codex-usage), with optional JSON export, CLI discovery improvements, and display-scaling fixes. Licensed under [MIT](LICENSE).
+Original application by [Tooblippe](https://github.com/Tooblippe/codex-usage). Upstream history and the [MIT license](LICENSE) are retained.
