@@ -71,5 +71,12 @@ sending any real notifications or accessing production settings. The existing
 `--self-test` suite is separate and includes a live Codex usage read.
 
 Validated on Windows with .NET SDK 10.0.401: Release build (zero warnings/errors),
-all 40 push checks, and the existing self-test suite. Phone delivery and interactive
-UI acceptance still require setup/testing on the actual device.
+all 40 push checks, and the existing self-test suite.
+
+On September 17, 2026, the maintainer confirmed receiving the explicit test
+notification on their phone from the installed self-contained build at commit
+`8a2c040`. The installed executable, startup registration, and existing widget feed
+were verified. This confirms the configured PC-to-phone test-delivery path;
+automatic threshold crossings are covered by the deterministic tests, not by an
+observed natural reset or depletion event. Fresh installations still need their
+own subscription and delivery test.

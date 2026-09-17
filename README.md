@@ -2,7 +2,7 @@
 
 A fork of **[Tooblippe’s Codex Usage Tray](https://github.com/Tooblippe/codex-usage)**. The original Windows tray app, usage popup, five-hour and weekly limits, reset times, and graph come from upstream.
 
-**This fork adds optional JSON snapshot export** for widgets and other tools. It also includes CLI discovery and display-scaling fixes, plus a single-EXE download with the .NET runtime included.
+**This fork adds optional JSON snapshot export and phone quota notifications.** It also includes CLI discovery and display-scaling fixes, plus a single-EXE download with the .NET runtime included.
 
 ## Get started
 
@@ -35,3 +35,6 @@ Original application by [Tooblippe](https://github.com/Tooblippe/codex-usage). U
 Push an alert when quota returns above 90% or falls below 10%, with separate
 weekly/five-hour choices. Off by default; no phone polling.
 See [setup and behavior](docs/PHONE_NOTIFICATIONS.md).
+
+Phone notifications are included in the current source. The older
+`v0.1.0-json-export-preview.2` download linked above predates this feature.

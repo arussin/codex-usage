@@ -1,4 +1,5 @@
 namespace CodexUsageTray;
+
 internal sealed partial class TrayApplicationContext
 {
     private readonly PhoneNotifications _phoneNotifications = new();
@@ -95,7 +96,9 @@ internal sealed class PhoneNotificationDialog : Form
             Text = "Subscribe to this server/topic in the ntfy phone app, then use Send test notification in the tray menu. "
                 + "Anyone with the topic name can read or publish to it on an open server; keep it private. "
                 + "Only short quota alerts are sent, never account credentials or your JSON feed.",
-            AutoSize = true, MaximumSize = new Size(470, 0), Margin = new Padding(0, 10, 0, 10),
+            AutoSize = true,
+            MaximumSize = new Size(470, 0),
+            Margin = new Padding(0, 10, 0, 10),
         };
         Button save = new() { Text = "Save", AutoSize = true };
         Button cancel = new() { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
@@ -105,8 +108,13 @@ internal sealed class PhoneNotificationDialog : Form
         {
             PhoneNotificationSettings value = new()
             {
-                Enabled = enabled.Checked, Server = server.Text.Trim().TrimEnd('/'), Topic = topic.Text.Trim(),
-                Recovery = recovery.Checked, Low = low.Checked, Weekly = weekly.Checked, FiveHour = fiveHour.Checked,
+                Enabled = enabled.Checked,
+                Server = server.Text.Trim().TrimEnd('/'),
+                Topic = topic.Text.Trim(),
+                Recovery = recovery.Checked,
+                Low = low.Checked,
+                Weekly = weekly.Checked,
+                FiveHour = fiveHour.Checked,
             };
             if (!value.HasDestination)
             {

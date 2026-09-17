@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 namespace CodexUsageTray;
+
 internal sealed class PhoneAlert
 {
     public bool Pending { get; set; }
