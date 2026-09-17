@@ -29,3 +29,9 @@ The feed contains quota availability, remaining percentages, reset times, and a 
 ## Credits
 
 Original application by [Tooblippe](https://github.com/Tooblippe/codex-usage). Upstream history and the [MIT license](LICENSE) are retained.
+
+## Optional phone notifications
+
+Push an alert when quota returns above 90% or falls below 10%, with separate
+weekly/five-hour choices. Off by default; no phone polling.
+See [setup and behavior](docs/PHONE_NOTIFICATIONS.md).

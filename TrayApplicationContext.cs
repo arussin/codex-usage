@@ -1,6 +1,6 @@
 namespace CodexUsageTray;
 
-internal sealed class TrayApplicationContext : ApplicationContext
+internal sealed partial class TrayApplicationContext : ApplicationContext
 {
     private readonly CodexRateLimitReader _reader = new();
     private readonly AlertStateStore _alertStateStore = new();
@@ -39,6 +39,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _jsonExportMenu.ToolTipText = _jsonExport.Settings.OutputPath;
         _jsonExportMenu.DropDownItems.AddRange([_jsonExportItem, chooseOutputItem]);
         _menu.Items.AddRange([refreshItem, _jsonExportMenu, _startupItem, new ToolStripSeparator(), exitItem]);
+
+        InitializePhoneNotifications();
 
         _weeklyIcon.ContextMenuStrip = _menu;
         _weeklyIcon.Text = "Codex weekly: N/A";
@@ -170,6 +172,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _usageHistoryStore.Record(_snapshot.Weekly, _snapshot.RefreshedAt);
             ApplySnapshot(_snapshot);
             ShowLowUsageAlerts(_snapshot);
+            _ = _phoneNotifications.ProcessAsync(_snapshot, _shutdown.Token);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
@@ -260,6 +263,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _pollTimer.Stop();
         _shutdown.Cancel();
+        _phoneNotifications.Dispose();
         _weeklyIcon.Visible = false;
         _pollTimer.Dispose();
         _popup.Dispose();

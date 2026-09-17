@@ -17,6 +17,11 @@ internal static class Program
             return SelfTests.RunAsync().GetAwaiter().GetResult();
         }
 
+        if (args.Contains("--self-test-push", StringComparer.OrdinalIgnoreCase))
+        {
+            return PhoneNotificationTests.RunAsync().GetAwaiter().GetResult();
+        }
+
         using Mutex mutex = new(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
