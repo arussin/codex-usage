@@ -10,58 +10,19 @@ internal static class SelfTests
     {
         try
         {
+            // Display scaling must be configured before any test draws an icon or creates a window.
+            ApplicationConfiguration.Initialize();
             DateTimeOffset now = DateTimeOffset.Now;
-            long reset = now.AddHours(1).ToUnixTimeSeconds();
-
-            UsageSnapshot both = Parse(
-                Window(25, CodexRateLimitReader.FiveHourMinutes, reset),
-                Window(60, CodexRateLimitReader.WeeklyMinutes, reset),
-                now);
-            Check(both.FiveHour.RemainingPercent == 75, "Five-hour remaining percentage was incorrect.");
-            Check(both.Weekly.RemainingPercent == 40, "Weekly remaining percentage was incorrect.");
-
-            UsageSnapshot single = Parse(
-                Window(10, CodexRateLimitReader.FiveHourMinutes, reset),
-                null,
-                now);
-            Check(single.FiveHour.State == LimitState.Available, "Single five-hour window was not available.");
-            Check(single.Weekly.State == LimitState.Unavailable, "Missing weekly window was not unavailable.");
-
-            UsageSnapshot weeklyOnly = Parse(
-                Window(15, CodexRateLimitReader.WeeklyMinutes, reset),
-                null,
-                now);
-            Check(weeklyOnly.FiveHour.State == LimitState.Unavailable, "Missing five-hour window was not unavailable.");
-            Check(weeklyOnly.Weekly.State == LimitState.Available, "Single weekly window was not available.");
-
-            UsageSnapshot reversed = Parse(
-                Window(30, CodexRateLimitReader.WeeklyMinutes, reset),
-                Window(40, CodexRateLimitReader.FiveHourMinutes, reset),
-                now);
-            Check(reversed.FiveHour.RemainingPercent == 60, "Reversed five-hour window was misclassified.");
-            Check(reversed.Weekly.RemainingPercent == 70, "Reversed weekly window was misclassified.");
-
-            UsageSnapshot clamped = Parse(
-                Window(-10, CodexRateLimitReader.FiveHourMinutes, reset),
-                Window(150, CodexRateLimitReader.WeeklyMinutes, reset),
-                now);
-            Check(clamped.FiveHour.RemainingPercent == 100, "Negative usage was not clamped.");
-            Check(clamped.Weekly.RemainingPercent == 0, "Excess usage was not clamped.");
-
-            ExpectThrows<CodexUsageException>(
-                () => CodexRateLimitReader.ParseUsageResponse("{", now),
-                "Malformed JSON was accepted.");
-            ExpectThrows<CodexUsageException>(
-                () => CodexRateLimitReader.ThrowIfProtocolError(
-                    """{"id":2,"error":{"message":"denied"}}"""),
-                "Protocol error was accepted.");
-
+            TestCodexParsing(now);
+            TestClaudeParsing(now);
+            TestTrayNumbers(now);
             TestWeeklyDailyRates(now);
             TestWeeklyEndOfDayTarget(now);
             TestWeeklyLeft(now);
             TestUsageHistoryPersistence(now);
             TestJsonSnapshotPersistence(now);
             TestJsonExportConsent(now);
+            TestJsonSiblingExport(now);
             TestPlotHistorySelection(now);
             TestUsagePrediction(now);
             TestHistoryCsv(now);
@@ -85,6 +46,7 @@ internal static class SelfTests
             Check(
                 live.FiveHour.State == LimitState.Available || live.Weekly.State == LimitState.Available,
                 "The live Codex smoke read returned no available usage window.");
+            await ReportClaudeLiveReadAsync().ConfigureAwait(false);
 
             Console.WriteLine("Self-tests passed.");
             return 0;
@@ -94,6 +56,304 @@ internal static class SelfTests
             Console.Error.WriteLine($"Self-test failed: {exception.Message}");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Reports one live Claude read without failing the run: Claude is an optional source,
+    /// and a machine where Claude Code is absent or signed out must still pass.
+    /// </summary>
+    private static async Task ReportClaudeLiveReadAsync()
+    {
+        try
+        {
+            UsageSnapshot claude = await new ClaudeUsageReader().FetchAsync().ConfigureAwait(false);
+            Console.WriteLine(
+                $"Claude live read: 5-hour {claude.FiveHour.State}, weekly {claude.Weekly.State}, "
+                + $"{claude.Scoped.Count} scoped.");
+        }
+        catch (ClaudeUsageException exception)
+        {
+            Console.WriteLine($"Claude live read skipped: {exception.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Verifies normalization of the Claude Code /usage report and its failure cases.
+    /// </summary>
+    /// <param name="now">The refresh timestamp.</param>
+    private static void TestClaudeParsing(DateTimeOffset now)
+    {
+        const string Init = """{"type":"system","subtype":"init","session_id":"s"}""";
+        const string Result = """{"type":"result","subtype":"success","result":"Current session"}""";
+        const string Limits =
+            """{"kind":"session","group":"session","percent":68,"resets_at":"2026-11-21T23:20:00.924Z","severity":"normal","is_active":true},"""
+            + """{"kind":"weekly_all","group":"weekly","percent":5.6,"resets_at":"2026-11-23T15:00:00Z","severity":"normal","is_active":false},"""
+            + """{"kind":"weekly_scoped","group":"weekly","percent":12,"resets_at":null,"scope":{"model":{"display_name":"Fable"}},"severity":"normal","is_active":false},"""
+            + """{"kind":"future_meter","group":"other","percent":50,"resets_at":null,"severity":"normal","is_active":false},"""
+            + """{"kind":"session","group":"session","percent":"broken","resets_at":null}""";
+
+        UsageSnapshot snapshot = ClaudeUsageReader.ParseUsageOutput(
+            string.Join('\n', "not json", "{broken", Init, ClaudeReport(Limits), Result),
+            now);
+        Check(snapshot.ErrorMessage is null && snapshot.RefreshedAt == now, "Claude snapshot metadata was incorrect.");
+        Check(snapshot.FiveHour.RemainingPercent == 32, "Claude five-hour remaining percentage was incorrect.");
+        Check(
+            snapshot.FiveHour.ResetsAt == DateTimeOffset.Parse(
+                "2026-11-21T23:20:00.924Z",
+                System.Globalization.CultureInfo.InvariantCulture),
+            "Claude five-hour reset time was incorrect.");
+        Check(snapshot.Weekly.RemainingPercent == 94, "Claude fractional weekly usage was not rounded.");
+        Check(
+            snapshot.Scoped.Count == 1
+                && snapshot.Scoped[0].Label == "Fable"
+                && snapshot.Scoped[0].Reading.RemainingPercent == 88
+                && snapshot.Scoped[0].Reading.ResetsAt is null,
+            "Claude scoped weekly limit was incorrect.");
+        Check(
+            UsagePopup.FormatScopedLimit(snapshot.Scoped[0]) == "Fable weekly: 88% remaining · reset unavailable",
+            "Claude scoped weekly limit text was incorrect.");
+
+        UsageSnapshot clamped = ClaudeUsageReader.ParseUsageOutput(
+            ClaudeReport(
+                """{"kind":"session","percent":150,"resets_at":null},{"kind":"weekly_all","percent":-10,"resets_at":null}"""),
+            now);
+        Check(clamped.FiveHour.RemainingPercent == 0, "Excess Claude usage was not clamped.");
+        Check(clamped.Weekly.RemainingPercent == 100, "Negative Claude usage was not clamped.");
+
+        UsageSnapshot empty = ClaudeUsageReader.ParseUsageOutput(ClaudeReport(string.Empty), now);
+        Check(
+            empty.FiveHour.State == LimitState.Unavailable
+                && empty.Weekly.State == LimitState.Unavailable
+                && empty.Scoped.Count == 0,
+            "A Claude report with no meters was not unavailable.");
+
+        // A signed-out CLI answers /usage with session costs and no plan report.
+        ExpectThrows<ClaudeUsageException>(
+            () => ClaudeUsageReader.ParseUsageOutput(
+                string.Join('\n', Init, """{"type":"assistant","message":{"content":[]}}""", Result),
+                now),
+            "A Claude answer without a plan report was accepted.");
+        ExpectThrows<ClaudeUsageException>(
+            () => ClaudeUsageReader.ParseUsageOutput(string.Join('\n', Init, Result), now),
+            "Claude output without an answer was accepted.");
+        ExpectThrows<ClaudeUsageException>(
+            () => ClaudeUsageReader.ParseUsageOutput(
+                """{"type":"assistant","usage_report":{"rate_limits":null}}""",
+                now),
+            "A Claude report without plan limits was accepted.");
+        ExpectThrows<ClaudeUsageException>(
+            () => ClaudeUsageReader.ParseUsageOutput(
+                """{"type":"assistant","usage_report":{"rate_limits":{"limits":null}}}""",
+                now),
+            "A Claude report with a failed limits fetch was accepted.");
+
+        Check(
+            ClaudeUsageReader.IsHostSessionVariable("CLAUDE_CODE_SESSION_ID")
+                && ClaudeUsageReader.IsHostSessionVariable("CLAUDECODE")
+                && !ClaudeUsageReader.IsHostSessionVariable("CLAUDE_CONFIG_DIR")
+                && !ClaudeUsageReader.IsHostSessionVariable("PATH"),
+            "Claude host-session environment filtering was incorrect.");
+    }
+
+    /// <summary>
+    /// Builds the stream-json line that carries a /usage report.
+    /// </summary>
+    /// <param name="limits">The serialized usage rows, without the surrounding array.</param>
+    /// <returns>The serialized assistant message.</returns>
+    private static string ClaudeReport(string limits) =>
+        """{"type":"assistant","message":{"role":"assistant","content":[]},"usage_report":{"session":{"total_cost_usd":0},"rate_limits":{"limits":["""
+        + limits
+        + """],"extra_usage":null}}}""";
+
+    /// <summary>
+    /// Verifies which tray numbers are shown, that a source can be switched off, and their icons.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic readings.</param>
+    private static void TestTrayNumbers(DateTimeOffset now)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "tray-numbers.json");
+        UsageSource codex = UsageSources.Codex;
+        UsageSource claude = UsageSources.Claude;
+        try
+        {
+            TrayNumberStore store = new(UsageSources.All, path);
+            Check(
+                store.IsShown(codex, LimitWindow.Weekly) && store.ShownCount == 1 && !store.IsActive(claude),
+                "A fresh install did not show only the Codex weekly number.");
+            Check(!File.Exists(path), "Loading default tray numbers wrote settings.");
+            Check(!store.TrySet(codex, LimitWindow.Weekly, false), "The last tray number was hidden.");
+            Check(!store.TrySet(codex, LimitWindow.Scoped, true), "A window the source lacks was shown.");
+            Check(
+                store.TrySet(claude, LimitWindow.FiveHour, true) && store.IsActive(claude),
+                "A Claude tray number could not be shown.");
+            Check(
+                store.TrySet(codex, LimitWindow.Weekly, false) && !store.IsActive(codex),
+                "Codex could not be switched off.");
+
+            TrayNumberStore restarted = new(UsageSources.All, path);
+            Check(
+                restarted.IsShown(claude, LimitWindow.FiveHour) && !restarted.IsActive(codex),
+                "Tray numbers did not survive restart.");
+            File.WriteAllText(path, "{broken");
+            Check(
+                new TrayNumberStore(UsageSources.All, path).IsShown(codex, LimitWindow.Weekly),
+                "Corrupt tray number settings did not fall back to defaults.");
+            File.WriteAllText(path, """{"codex":[],"claude":["Nonsense"]}""");
+            Check(
+                new TrayNumberStore(UsageSources.All, path).ShownCount == 1,
+                "Settings with no tray numbers left the menu unreachable.");
+
+            Check(
+                TrayApplicationContext.ResolveFrame(codex, LimitWindow.Weekly) == TrayFrame.None
+                    && TrayApplicationContext.ResolveFrame(codex, LimitWindow.FiveHour) == TrayFrame.Circle
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.Weekly) == TrayFrame.Square
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.FiveHour) == TrayFrame.Circle
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.Scoped) == TrayFrame.Flagged
+                    && codex.FrameColor != claude.FrameColor,
+                "Tray numbers were not distinguishable.");
+            Check(
+                TrayApplicationContext.DescribeFrame(codex, LimitWindow.Weekly) == "no frame"
+                    && TrayApplicationContext.DescribeFrame(claude, LimitWindow.Weekly) == "orange square"
+                    && TrayApplicationContext.DescribeFrame(claude, LimitWindow.FiveHour) == "orange circle",
+                "The tray number legend was incorrect.");
+            LimitReading reading = new(LimitState.Available, 32, now.AddHours(2));
+            Check(
+                TrayIconRenderer.ResolveShortWindowColor(reading) == Color.LimeGreen
+                    && TrayIconRenderer.ResolveShortWindowColor(reading with { RemainingPercent = 20 }) == Color.Red
+                    && TrayIconRenderer.ResolveShortWindowColor(reading with { State = LimitState.Unavailable })
+                        == Color.Gray,
+                "Five-hour tray text colour was incorrect.");
+            foreach (TrayFrame frame in Enum.GetValues<TrayFrame>())
+            {
+                using Icon icon = TrayIconRenderer.Render(reading, Color.LimeGreen, frame, claude.FrameColor);
+                Check(icon.Width > 0, "A tray number could not be rendered.");
+                SavePreview(icon, $"tray-number-{frame}".ToLowerInvariant());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that an additional source exports beside the configured file under the same consent.
+    /// </summary>
+    /// <param name="now">The timestamp used for deterministic snapshots.</param>
+    private static void TestJsonSiblingExport(DateTimeOffset now)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string configured = Path.Combine(directory, "phone", "usage.json");
+        string sibling = Path.Combine(directory, "phone", "claude.json");
+        UsageSnapshot codex = new(
+            new LimitReading(LimitState.Unavailable, null, null),
+            new LimitReading(LimitState.Available, 44, now.AddDays(4)),
+            now,
+            null);
+        UsageSnapshot claude = new(
+            new LimitReading(LimitState.Available, 32, now.AddHours(3)),
+            new LimitReading(LimitState.Available, 94, now.AddDays(2)),
+            now.AddSeconds(1),
+            null)
+        {
+            Scoped = [new ScopedLimit("Fable", new LimitReading(LimitState.Available, 88, now.AddDays(2)))],
+        };
+        try
+        {
+            JsonExportController export = new(new JsonExportSettingsStore(Path.Combine(directory, "settings.json")));
+            Check(export.TryConfigure(new(false, configured)), "Could not configure a disabled destination.");
+            export.Save(claude, "claude.json");
+            Check(!File.Exists(sibling), "Disabled export created an additional source's snapshot.");
+            Check(export.TryConfigure(new(true, configured)), "Could not enable export.");
+            export.Save(codex);
+            string codexJson = File.ReadAllText(configured);
+            export.Save(claude, "claude.json");
+            Check(File.ReadAllText(configured) == codexJson, "An additional source changed the configured file.");
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
+            {
+                System.Text.Json.JsonElement root = document.RootElement;
+                CheckJsonFields(root, "fiveHour", "weekly", "refreshedAt");
+                Check(root.GetProperty("fiveHour").GetProperty("remaining").GetInt32() == 32, "Additional five-hour quota differed from the UI.");
+                Check(root.GetProperty("weekly").GetProperty("remaining").GetInt32() == 94, "Additional weekly quota differed from the UI.");
+                Check(root.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(now.AddSeconds(1)), "Additional refresh timestamp changed.");
+            }
+
+            export.Save(UsageSnapshot.Error("Sensitive error metadata must never be exported."), "claude.json");
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
+            {
+                Check(
+                    document.RootElement.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(now.AddSeconds(1)),
+                    "A failed additional read replaced its last good snapshot.");
+            }
+
+            Check(
+                JsonExportController.SiblingPath(sibling, "CLAUDE.json")
+                    == Path.Combine(directory, "phone", "CLAUDE-usage.json"),
+                "An additional source could overwrite the configured file.");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies normalization of Codex rate-limit responses and protocol errors.
+    /// </summary>
+    /// <param name="now">The refresh timestamp.</param>
+    private static void TestCodexParsing(DateTimeOffset now)
+    {
+        long reset = now.AddHours(1).ToUnixTimeSeconds();
+
+        UsageSnapshot both = Parse(
+            Window(25, CodexRateLimitReader.FiveHourMinutes, reset),
+            Window(60, CodexRateLimitReader.WeeklyMinutes, reset),
+            now);
+        Check(both.FiveHour.RemainingPercent == 75, "Five-hour remaining percentage was incorrect.");
+        Check(both.Weekly.RemainingPercent == 40, "Weekly remaining percentage was incorrect.");
+
+        UsageSnapshot single = Parse(
+            Window(10, CodexRateLimitReader.FiveHourMinutes, reset),
+            null,
+            now);
+        Check(single.FiveHour.State == LimitState.Available, "Single five-hour window was not available.");
+        Check(single.Weekly.State == LimitState.Unavailable, "Missing weekly window was not unavailable.");
+
+        UsageSnapshot weeklyOnly = Parse(
+            Window(15, CodexRateLimitReader.WeeklyMinutes, reset),
+            null,
+            now);
+        Check(weeklyOnly.FiveHour.State == LimitState.Unavailable, "Missing five-hour window was not unavailable.");
+        Check(weeklyOnly.Weekly.State == LimitState.Available, "Single weekly window was not available.");
+
+        UsageSnapshot reversed = Parse(
+            Window(30, CodexRateLimitReader.WeeklyMinutes, reset),
+            Window(40, CodexRateLimitReader.FiveHourMinutes, reset),
+            now);
+        Check(reversed.FiveHour.RemainingPercent == 60, "Reversed five-hour window was misclassified.");
+        Check(reversed.Weekly.RemainingPercent == 70, "Reversed weekly window was misclassified.");
+
+        UsageSnapshot clamped = Parse(
+            Window(-10, CodexRateLimitReader.FiveHourMinutes, reset),
+            Window(150, CodexRateLimitReader.WeeklyMinutes, reset),
+            now);
+        Check(clamped.FiveHour.RemainingPercent == 100, "Negative usage was not clamped.");
+        Check(clamped.Weekly.RemainingPercent == 0, "Excess usage was not clamped.");
+
+        ExpectThrows<CodexUsageException>(
+            () => CodexRateLimitReader.ParseUsageResponse("{", now),
+            "Malformed JSON was accepted.");
+        ExpectThrows<CodexUsageException>(
+            () => CodexRateLimitReader.ThrowIfProtocolError(
+                """{"id":2,"error":{"message":"denied"}}"""),
+            "Protocol error was accepted.");
     }
 
     /// <summary>
@@ -263,14 +523,46 @@ internal static class SelfTests
     /// </summary>
     private static void TestPopupReopen()
     {
-        ApplicationConfiguration.Initialize();
-        using UsagePopup popup = new();
+        TestPopupReopen(new UsagePopup());
+        TestPopupReopen(new UsagePopup(UsageSources.Claude.DisplayName, UsageSources.Claude.ScopedRows));
+    }
+
+    /// <summary>
+    /// Verifies one source's popup, including the extra rows a source with scoped limits adds.
+    /// </summary>
+    /// <param name="popup">The popup under test, disposed before returning.</param>
+    private static void TestPopupReopen(UsagePopup popup)
+    {
+        using UsagePopup owned = popup;
+        DateTimeOffset now = DateTimeOffset.Now;
+        DateTimeOffset weeklyReset = now.AddDays(2).AddHours(5);
+        popup.UpdateSnapshot(
+            new UsageSnapshot(
+                new LimitReading(LimitState.Available, 32, now.AddHours(3)),
+                new LimitReading(LimitState.Available, 61, weeklyReset),
+                now,
+                null)
+            {
+                Scoped = [new ScopedLimit("Fable", new LimitReading(LimitState.Available, 48, weeklyReset))],
+            },
+            refreshing: false,
+            [
+                new UsageHistoryPoint(now.AddDays(-4), 96),
+                new UsageHistoryPoint(now.AddDays(-2), 80),
+                new UsageHistoryPoint(now, 61),
+            ]);
         popup.Show();
+        SavePreview(popup);
         Size shownSize = popup.Size;
         foreach (Label label in popup.Controls.OfType<Label>())
         {
-            Check(label.Height >= label.PreferredHeight, "Popup text was clipped at the current display DPI.");
-            Check(popup.ClientRectangle.Contains(label.Bounds), "Popup text extended outside the window.");
+            Check(
+                label.Height >= label.PreferredHeight,
+                $"Popup text was clipped at the current display DPI: \"{label.Text}\" in {popup.Text} is "
+                + $"{label.Height} high and needs {label.PreferredHeight} at {popup.DeviceDpi} DPI.");
+            Check(
+                popup.ClientRectangle.Contains(label.Bounds),
+                $"Popup text extended outside the window: \"{label.Text}\" in {popup.Text}.");
         }
 
         popup.Close();
@@ -278,6 +570,45 @@ internal static class SelfTests
         popup.Show();
         Check(popup.Size == shownSize, "Reopening the popup changed its scaled size.");
         popup.Hide();
+    }
+
+    /// <summary>
+    /// Saves a picture of a popup when CODEX_USAGE_TRAY_PREVIEW_DIR names a folder, so its layout
+    /// can be reviewed, or a documentation screenshot refreshed, without a running tray.
+    /// </summary>
+    /// <param name="popup">The shown popup holding sample readings.</param>
+    private static void SavePreview(UsagePopup popup)
+    {
+        string? directory = Environment.GetEnvironmentVariable("CODEX_USAGE_TRAY_PREVIEW_DIR");
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+        using Bitmap bitmap = new(popup.Width, popup.Height);
+        popup.DrawToBitmap(bitmap, new Rectangle(Point.Empty, popup.Size));
+        bitmap.Save(
+            Path.Combine(directory, popup.Text.Replace(' ', '-').ToLowerInvariant() + ".png"),
+            System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    /// <summary>
+    /// Saves a picture of a tray number when CODEX_USAGE_TRAY_PREVIEW_DIR names a folder.
+    /// </summary>
+    /// <param name="icon">The rendered tray icon.</param>
+    /// <param name="name">The file name without its extension.</param>
+    private static void SavePreview(Icon icon, string name)
+    {
+        string? directory = Environment.GetEnvironmentVariable("CODEX_USAGE_TRAY_PREVIEW_DIR");
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+        using Bitmap bitmap = icon.ToBitmap();
+        bitmap.Save(Path.Combine(directory, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
     }
 
     /// <summary>

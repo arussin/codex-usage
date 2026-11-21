@@ -2,25 +2,21 @@ namespace CodexUsageTray;
 
 internal sealed partial class TrayApplicationContext : ApplicationContext
 {
-    private readonly CodexRateLimitReader _reader = new();
     private readonly AlertStateStore _alertStateStore = new();
-    private readonly UsageHistoryStore _usageHistoryStore = new();
     private readonly JsonExportController _jsonExport = new();
     private readonly StartupRegistration _startupRegistration = new();
+    private readonly TrayNumberStore _trayNumbers = new(UsageSources.All);
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly NotifyIcon _weeklyIcon = new();
+    private readonly List<SourceRuntime> _sources = [];
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _startupItem = new("Start with Windows");
     private readonly ToolStripMenuItem _jsonExportItem = new("Enable export");
     private readonly ToolStripMenuItem _jsonExportMenu = new("JSON export");
-    private readonly UsagePopup _popup = new();
+    private readonly ToolStripMenuItem _trayNumbersMenu = new("Tray numbers");
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 300_000 };
-    private UsageSnapshot _snapshot = UsageSnapshot.Initial();
-    private Icon? _weeklyRenderedIcon;
-    private bool _refreshing;
 
     /// <summary>
-    /// Creates the weekly tray icon, its menu, and the periodic refresh loop.
+    /// Creates the tray numbers, their shared menu, and the periodic refresh loop.
     /// </summary>
     internal TrayApplicationContext()
     {
@@ -38,24 +34,98 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             _jsonExport.Settings with { Enabled = !_jsonExport.Settings.Enabled });
         _jsonExportMenu.ToolTipText = _jsonExport.Settings.OutputPath;
         _jsonExportMenu.DropDownItems.AddRange([_jsonExportItem, chooseOutputItem]);
-        _menu.Items.AddRange([refreshItem, _jsonExportMenu, _startupItem, new ToolStripSeparator(), exitItem]);
+        _menu.Items.AddRange(
+            [refreshItem, _jsonExportMenu, _trayNumbersMenu, _startupItem, new ToolStripSeparator(), exitItem]);
 
         InitializePhoneNotifications();
 
-        _weeklyIcon.ContextMenuStrip = _menu;
-        _weeklyIcon.Text = "Codex weekly: N/A";
-        _weeklyIcon.MouseClick += (_, eventArgs) =>
+        foreach (UsageSource source in UsageSources.All)
         {
-            if (eventArgs.Button == MouseButtons.Left)
+            SourceRuntime runtime = new(source);
+            _sources.Add(runtime);
+            foreach (LimitWindow window in source.Windows)
             {
-                ShowPopup();
+                ToolStripMenuItem item = new(
+                    $"{source.DisplayName} {UsageSource.WindowName(window)} ({DescribeFrame(source, window)})")
+                {
+                    Checked = _trayNumbers.IsShown(source, window),
+                };
+                item.Click += (_, _) => ToggleTrayNumber(runtime, window, item);
+                _trayNumbersMenu.DropDownItems.Add(item);
             }
-        };
 
-        ApplySnapshot(_snapshot);
+            SyncTrayNumbers(runtime);
+            ApplySnapshot(runtime);
+        }
+
         _pollTimer.Tick += async (_, _) => await RefreshAsync();
         _pollTimer.Start();
         _ = RefreshAsync();
+    }
+
+    /// <summary>
+    /// Shows or hides one tray number. A source with no numbers left stops being polled.
+    /// </summary>
+    /// <param name="runtime">The source that owns the window.</param>
+    /// <param name="window">The window to show or hide.</param>
+    /// <param name="item">The menu item reflecting the choice.</param>
+    private void ToggleTrayNumber(SourceRuntime runtime, LimitWindow window, ToolStripMenuItem item)
+    {
+        bool show = !_trayNumbers.IsShown(runtime.Source, window);
+        bool last = !show && _trayNumbers.ShownCount <= 1;
+        if (!_trayNumbers.TrySet(runtime.Source, window, show))
+        {
+            MessageBox.Show(
+                last
+                    ? "Keep at least one tray number so this menu stays reachable."
+                    : "Could not save the tray number settings. The previous settings remain in effect.",
+                "Codex Usage Tray",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+
+        item.Checked = _trayNumbers.IsShown(runtime.Source, window);
+        SyncTrayNumbers(runtime);
+        if (!_trayNumbers.IsActive(runtime.Source))
+        {
+            // Readings from a source that is no longer polled must not linger as if current.
+            runtime.Snapshot = UsageSnapshot.Initial();
+            runtime.Popup.Hide();
+        }
+
+        ApplySnapshot(runtime);
+        if (show)
+        {
+            _ = RefreshAsync(runtime);
+        }
+    }
+
+    /// <summary>
+    /// Creates and removes tray icons so they match the numbers the user chose.
+    /// </summary>
+    /// <param name="runtime">The source whose icons to reconcile.</param>
+    private void SyncTrayNumbers(SourceRuntime runtime)
+    {
+        foreach (LimitWindow window in runtime.Source.Windows)
+        {
+            bool shown = _trayNumbers.IsShown(runtime.Source, window);
+            if (shown && !runtime.Numbers.ContainsKey(window))
+            {
+                NotifyIcon icon = new() { ContextMenuStrip = _menu };
+                icon.MouseClick += (_, eventArgs) =>
+                {
+                    if (eventArgs.Button == MouseButtons.Left)
+                    {
+                        ShowPopup(runtime);
+                    }
+                };
+                runtime.Numbers[window] = new TrayNumber(icon);
+            }
+            else if (!shown && runtime.Numbers.Remove(window, out TrayNumber? removed))
+            {
+                removed.Dispose();
+            }
+        }
     }
 
     /// <summary>
@@ -144,35 +214,53 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// Shows the combined popup and requests a fresh snapshot.
+    /// Shows one source's popup and requests a fresh snapshot for it.
     /// </summary>
-    private void ShowPopup()
+    /// <param name="runtime">The source whose tray number was clicked.</param>
+    private void ShowPopup(SourceRuntime runtime)
     {
-        _popup.UpdateSnapshot(_snapshot, _refreshing, _usageHistoryStore.Points);
-        _popup.ShowNearTaskbar();
-        _ = RefreshAsync();
+        runtime.Popup.UpdateSnapshot(runtime.Snapshot, runtime.Refreshing, runtime.History.Points);
+        runtime.Popup.ShowNearTaskbar();
+        _ = RefreshAsync(runtime);
     }
 
     /// <summary>
-    /// Fetches and applies one snapshot while preventing overlapping requests.
+    /// Refreshes every source that has a tray number. Sources refresh independently.
     /// </summary>
-    private async Task RefreshAsync()
+    private Task RefreshAsync() =>
+        Task.WhenAll(_sources.Where(runtime => _trayNumbers.IsActive(runtime.Source)).Select(RefreshAsync));
+
+    /// <summary>
+    /// Fetches and applies one source's snapshot while preventing overlapping requests to it.
+    /// A failure here never changes another source's readings.
+    /// </summary>
+    /// <param name="runtime">The source to refresh.</param>
+    private async Task RefreshAsync(SourceRuntime runtime)
     {
-        if (_refreshing || _shutdown.IsCancellationRequested)
+        if (runtime.Refreshing || _shutdown.IsCancellationRequested || !_trayNumbers.IsActive(runtime.Source))
         {
             return;
         }
 
-        _refreshing = true;
-        _popup.UpdateSnapshot(_snapshot, refreshing: true, _usageHistoryStore.Points);
+        runtime.Refreshing = true;
+        runtime.Popup.UpdateSnapshot(runtime.Snapshot, refreshing: true, runtime.History.Points);
         try
         {
-            _snapshot = await _reader.FetchAsync(_shutdown.Token);
-            _jsonExport.Save(_snapshot);
-            _usageHistoryStore.Record(_snapshot.Weekly, _snapshot.RefreshedAt);
-            ApplySnapshot(_snapshot);
-            ShowLowUsageAlerts(_snapshot);
-            _ = _phoneNotifications.ProcessAsync(_snapshot, _shutdown.Token);
+            UsageSnapshot snapshot = await runtime.Reader.FetchAsync(_shutdown.Token);
+            if (!_trayNumbers.IsActive(runtime.Source))
+            {
+                return;
+            }
+
+            runtime.Snapshot = snapshot;
+            _jsonExport.Save(snapshot, runtime.Source.ExportFileName);
+            runtime.History.Record(snapshot.Weekly, snapshot.RefreshedAt);
+            ApplySnapshot(runtime);
+            ShowLowUsageAlerts(runtime);
+            if (runtime.Source.SendsPhoneNotifications)
+            {
+                _ = _phoneNotifications.ProcessAsync(snapshot, _shutdown.Token);
+            }
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
@@ -180,78 +268,130 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
         }
         catch (Exception exception)
         {
-            _snapshot = UsageSnapshot.Error(exception.Message);
-            ApplySnapshot(_snapshot);
+            runtime.Snapshot = UsageSnapshot.Error(exception.Message);
+            ApplySnapshot(runtime);
         }
         finally
         {
-            _refreshing = false;
+            runtime.Refreshing = false;
             if (!_shutdown.IsCancellationRequested)
             {
-                _popup.UpdateSnapshot(_snapshot, refreshing: false, _usageHistoryStore.Points);
+                runtime.Popup.UpdateSnapshot(runtime.Snapshot, refreshing: false, runtime.History.Points);
             }
         }
     }
 
     /// <summary>
-    /// Applies one snapshot to the weekly tray icon, tooltip, and popup.
+    /// Applies one source's snapshot to its tray numbers, tooltips, and popup.
     /// </summary>
-    /// <param name="snapshot">The normalized snapshot to display.</param>
-    private void ApplySnapshot(UsageSnapshot snapshot)
+    /// <param name="runtime">The source to display.</param>
+    private static void ApplySnapshot(SourceRuntime runtime)
     {
-        double? weeklyLeft = UsagePopup.CalculateWeeklyLeft(snapshot.Weekly, DateTimeOffset.Now);
-        Icon weekly = TrayIconRenderer.Render(snapshot.Weekly, weeklyLeft);
-        Icon? oldWeekly = _weeklyRenderedIcon;
-        _weeklyRenderedIcon = weekly;
-        _weeklyIcon.Icon = weekly;
-        _weeklyIcon.Visible = true;
-        oldWeekly?.Dispose();
-        _weeklyIcon.Text = FormatTooltip("Weekly", snapshot.Weekly);
-        _popup.UpdateSnapshot(snapshot, _refreshing, _usageHistoryStore.Points);
+        UsageSource source = runtime.Source;
+        UsageSnapshot snapshot = runtime.Snapshot;
+        foreach ((LimitWindow window, TrayNumber number) in runtime.Numbers)
+        {
+            ScopedLimit? scoped = window == LimitWindow.Scoped ? TightestScoped(snapshot) : null;
+            LimitReading reading = window switch
+            {
+                LimitWindow.FiveHour => snapshot.FiveHour,
+                LimitWindow.Weekly => snapshot.Weekly,
+                _ => scoped?.Reading ?? new LimitReading(LimitState.Unavailable, null, null),
+            };
+            Color textColor = window == LimitWindow.FiveHour
+                ? TrayIconRenderer.ResolveShortWindowColor(reading)
+                : TrayIconRenderer.ResolveTextColor(UsagePopup.CalculateWeeklyLeft(reading, DateTimeOffset.Now));
+            number.Show(
+                TrayIconRenderer.Render(reading, textColor, ResolveFrame(source, window), source.FrameColor),
+                FormatTooltip($"{source.DisplayName} {UsageSource.WindowName(window, scoped?.Label)}", reading));
+        }
+
+        runtime.Popup.UpdateSnapshot(snapshot, runtime.Refreshing, runtime.History.Points);
     }
+
+    /// <summary>
+    /// Picks the scoped weekly limit closest to running out, which is the one worth a tray number.
+    /// </summary>
+    /// <param name="snapshot">The snapshot to search.</param>
+    /// <returns>The tightest available scoped limit, or null when the source reports none.</returns>
+    private static ScopedLimit? TightestScoped(UsageSnapshot snapshot) =>
+        snapshot.Scoped
+            .Where(limit => limit.Reading.State == LimitState.Available && limit.Reading.RemainingPercent is int)
+            .OrderBy(limit => limit.Reading.RemainingPercent)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Chooses the frame that tells one tray number from another. The original single
+    /// weekly number keeps its plain look; every other number is framed in its source's colour.
+    /// </summary>
+    /// <param name="source">The source that owns the number.</param>
+    /// <param name="window">The window the number shows.</param>
+    /// <returns>A circle for five-hour, a flagged square for scoped, and a square or nothing for weekly.</returns>
+    internal static TrayFrame ResolveFrame(UsageSource source, LimitWindow window) => window switch
+    {
+        LimitWindow.FiveHour => TrayFrame.Circle,
+        LimitWindow.Scoped => TrayFrame.Flagged,
+        _ => source == UsageSources.Codex ? TrayFrame.None : TrayFrame.Square,
+    };
+
+    /// <summary>
+    /// Describes a tray number's frame in words, so the menu doubles as a legend.
+    /// </summary>
+    /// <param name="source">The source that owns the number.</param>
+    /// <param name="window">The window the number shows.</param>
+    /// <returns>A short description such as "orange circle".</returns>
+    internal static string DescribeFrame(UsageSource source, LimitWindow window) =>
+        ResolveFrame(source, window) switch
+        {
+            TrayFrame.Square => $"{source.FrameColorName} square",
+            TrayFrame.Circle => $"{source.FrameColorName} circle",
+            TrayFrame.Flagged => $"{source.FrameColorName} square, filled corner",
+            _ => "no frame",
+        };
 
     /// <summary>
     /// Formats one short tray tooltip.
     /// </summary>
-    /// <param name="name">The rate-limit window name.</param>
+    /// <param name="name">The source and rate-limit window name.</param>
     /// <param name="reading">The normalized limit reading.</param>
     /// <returns>A tooltip below the Windows length limit.</returns>
     private static string FormatTooltip(string name, LimitReading reading) =>
         reading.State == LimitState.Available && reading.RemainingPercent is int remaining
-            ? $"Codex {name}: {Math.Clamp(remaining, 0, 100)}% remaining"
-            : $"Codex {name}: N/A";
+            ? $"{name}: {Math.Clamp(remaining, 0, 100)}% remaining"
+            : $"{name}: N/A";
 
     /// <summary>
     /// Shows each low-usage balloon at most once for its reset cycle.
     /// </summary>
-    /// <param name="snapshot">The newly fetched usage snapshot.</param>
-    private void ShowLowUsageAlerts(UsageSnapshot snapshot)
+    /// <param name="runtime">The source with a newly fetched snapshot.</param>
+    private void ShowLowUsageAlerts(SourceRuntime runtime)
     {
-        ShowLowUsageAlert(_weeklyIcon, "five-hour", "5-hour", snapshot.FiveHour);
-        ShowLowUsageAlert(_weeklyIcon, "weekly", "weekly", snapshot.Weekly);
+        ShowLowUsageAlert(runtime, "five-hour", "5-hour", runtime.Snapshot.FiveHour);
+        ShowLowUsageAlert(runtime, "weekly", "weekly", runtime.Snapshot.Weekly);
     }
 
     /// <summary>
     /// Shows one native warning balloon when persistence indicates it is due.
     /// </summary>
-    /// <param name="icon">The owning tray icon.</param>
+    /// <param name="runtime">The source that owns the limit.</param>
     /// <param name="windowKey">The persistence key for the limit window.</param>
     /// <param name="displayName">The user-facing limit-window name.</param>
     /// <param name="reading">The normalized limit reading.</param>
     private void ShowLowUsageAlert(
-        NotifyIcon icon,
+        SourceRuntime runtime,
         string windowKey,
         string displayName,
         LimitReading reading)
     {
-        if (!_alertStateStore.ShouldAlert(windowKey, reading))
+        TrayNumber? owner = runtime.Numbers.Values.FirstOrDefault();
+        if (owner is null || !_alertStateStore.ShouldAlert(runtime.Source.AlertKeyPrefix + windowKey, reading))
         {
             return;
         }
 
-        icon.ShowBalloonTip(
+        owner.Icon.ShowBalloonTip(
             5_000,
-            $"Codex {displayName} limit low",
+            $"{runtime.Source.DisplayName} {displayName} limit low",
             $"{reading.RemainingPercent}% remains until this limit resets.",
             ToolTipIcon.Warning);
     }
@@ -264,13 +404,84 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
         _pollTimer.Stop();
         _shutdown.Cancel();
         _phoneNotifications.Dispose();
-        _weeklyIcon.Visible = false;
         _pollTimer.Dispose();
-        _popup.Dispose();
-        _weeklyIcon.Dispose();
+        foreach (SourceRuntime runtime in _sources)
+        {
+            runtime.Dispose();
+        }
+
         _menu.Dispose();
-        _weeklyRenderedIcon?.Dispose();
         _shutdown.Dispose();
         base.ExitThreadCore();
+    }
+
+    /// <summary>
+    /// One tray icon showing one quota window, together with the icon image it currently owns.
+    /// </summary>
+    private sealed class TrayNumber(NotifyIcon icon) : IDisposable
+    {
+        private Icon? _rendered;
+
+        internal NotifyIcon Icon { get; } = icon;
+
+        /// <summary>
+        /// Replaces the displayed image and tooltip, releasing the previous image.
+        /// </summary>
+        /// <param name="rendered">The newly rendered icon, owned by this number from now on.</param>
+        /// <param name="tooltip">The tooltip text.</param>
+        internal void Show(Icon rendered, string tooltip)
+        {
+            Icon? previous = _rendered;
+            _rendered = rendered;
+            Icon.Icon = rendered;
+            Icon.Text = tooltip;
+            Icon.Visible = true;
+            previous?.Dispose();
+        }
+
+        /// <summary>
+        /// Hides the tray icon and releases its image.
+        /// </summary>
+        public void Dispose()
+        {
+            Icon.Visible = false;
+            Icon.Dispose();
+            _rendered?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The live state of one usage source: its reader, readings, history, popup, and tray numbers.
+    /// </summary>
+    private sealed class SourceRuntime(UsageSource source) : IDisposable
+    {
+        internal UsageSource Source { get; } = source;
+
+        internal IUsageReader Reader { get; } = source.CreateReader();
+
+        internal UsageHistoryStore History { get; } = new(
+            Path.Combine(PhoneNotificationFiles.DefaultDirectory, source.HistoryFileName));
+
+        internal UsagePopup Popup { get; } = new(source.DisplayName, source.ScopedRows);
+
+        internal Dictionary<LimitWindow, TrayNumber> Numbers { get; } = [];
+
+        internal UsageSnapshot Snapshot { get; set; } = UsageSnapshot.Initial();
+
+        internal bool Refreshing { get; set; }
+
+        /// <summary>
+        /// Hides this source's tray numbers and releases its popup.
+        /// </summary>
+        public void Dispose()
+        {
+            foreach (TrayNumber number in Numbers.Values)
+            {
+                number.Dispose();
+            }
+
+            Numbers.Clear();
+            Popup.Dispose();
+        }
     }
 }

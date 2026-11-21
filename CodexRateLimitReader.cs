@@ -26,10 +26,10 @@ internal sealed class CodexUsageException : Exception
     }
 }
 
-internal sealed class CodexRateLimitReader
+internal sealed class CodexRateLimitReader : IUsageReader
 {
-    internal const long FiveHourMinutes = 300;
-    internal const long WeeklyMinutes = 10_080;
+    internal const long FiveHourMinutes = LimitWindows.FiveHourMinutes;
+    internal const long WeeklyMinutes = LimitWindows.WeeklyMinutes;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>
@@ -37,7 +37,7 @@ internal sealed class CodexRateLimitReader
     /// </summary>
     /// <param name="cancellationToken">Cancellation token for application shutdown.</param>
     /// <returns>The normalized five-hour and weekly snapshot.</returns>
-    internal async Task<UsageSnapshot> FetchAsync(CancellationToken cancellationToken = default)
+    public async Task<UsageSnapshot> FetchAsync(CancellationToken cancellationToken = default)
     {
         using CancellationTokenSource timeoutSource =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

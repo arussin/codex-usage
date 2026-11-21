@@ -26,6 +26,16 @@ The feed contains quota availability, remaining percentages, reset times, and a 
 
 [JSON fields and settings](docs/JSON_EXPORT.md) · [Android widgets and setup](https://github.com/arussin/kwgt-cyberdeck-status)
 
+## Optional Claude quota
+
+The tray can also show your Claude plan limits: 5-hour, weekly, and per-model weekly. It is **off by default**. Right-click → **Tray numbers** and tick the Claude numbers you want. Each quota is its own tray number, and Codex and Claude can be switched on or off independently.
+
+Requires a **signed-in Claude Code CLI** on the same Windows account (`claude auth login`). With JSON export enabled, Claude's readings are written to `claude.json` beside `usage.json`.
+
+[Claude setup and behavior](docs/CLAUDE.md)
+
+Claude quota is included in the current source. The `v0.1.0-json-export-preview.2` download linked above predates this feature.
+
 ## Credits
 
 Original application by [Tooblippe](https://github.com/Tooblippe/codex-usage). Upstream history and the [MIT license](LICENSE) are retained.

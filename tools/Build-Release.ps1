@@ -58,6 +58,8 @@ Copy-Item -LiteralPath (Join-Path $copyRoot 'LICENSE') -Destination (Join-Path $
 # may briefly show a test popup, and performs one authenticated quota read.
 # It neither starts a normal tray nor writes the live phone export.
 $test = Start-Process -FilePath (Join-Path $publish 'CodexUsageTray.exe') -ArgumentList '--self-test' -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $workRoot 'self-test.stdout.txt') -RedirectStandardError (Join-Path $workRoot 'self-test.stderr.txt')
+# Windows PowerShell 5.1 reports a null ExitCode unless the process handle is read before exit.
+$null = $test.Handle
 if (!$test.WaitForExit(180000)) {
     Stop-Process -Id $test.Id -ErrorAction SilentlyContinue
     throw 'Only the newly started self-test process was stopped after its timeout.'
