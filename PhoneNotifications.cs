@@ -22,6 +22,7 @@ internal sealed class PhoneNotificationState
 {
     public string SettingsKey { get; set; } = "";
     public DateTimeOffset LastRead { get; set; }
+    public Dictionary<string, DateTimeOffset> SourceReads { get; set; } = [];
     public Dictionary<string, PhoneWindowState> Windows { get; set; } = [];
 }
 // Reuses successful tray refreshes. No extra polling, server or phone-side timer.
@@ -47,7 +48,8 @@ internal sealed class PhoneNotifications : IDisposable
         Settings = PhoneNotificationFiles.Load(settingsPath, new PhoneNotificationSettings());
         if (!Settings.IsValid) Settings = new();
         state = PhoneNotificationFiles.Load(statePath, new PhoneNotificationState());
-        if (state.Windows is null || state.Windows.Values.Any(w => w is null || w.Recovery is null || w.Low is null)
+        if (state.Windows is null || state.SourceReads is null
+            || state.Windows.Values.Any(w => w is null || w.Recovery is null || w.Low is null)
             || state.SettingsKey != Key(Settings)) state = FreshState(Settings);
     }
     private static string Key(PhoneNotificationSettings settings) => Convert.ToHexString(
@@ -77,19 +79,26 @@ internal sealed class PhoneNotifications : IDisposable
             gate.Release();
         }
     }
-    internal async Task ProcessAsync(UsageSnapshot snapshot, CancellationToken cancellationToken = default)
+    internal Task ProcessAsync(UsageSnapshot snapshot, CancellationToken cancellationToken = default) =>
+        ProcessAsync(UsageSources.Codex, snapshot, cancellationToken);
+    internal async Task ProcessAsync(UsageSource source, UsageSnapshot snapshot, CancellationToken cancellationToken = default)
     {
-        try { if (cancellationToken.IsCancellationRequested || !await gate.WaitAsync(0, cancellationToken)) return; }
+        // Sources finish their reads close together, so wait for the other one's turn rather than drop this reading.
+        try { if (cancellationToken.IsCancellationRequested) return; await gate.WaitAsync(cancellationToken); }
         catch (OperationCanceledException) { return; }
         try
         {
+            // Each source has its own last-read time: two sources read at the same moment are both fresh.
+            bool original = source.AlertKeyPrefix.Length == 0;
+            DateTimeOffset lastRead = original ? state.LastRead : state.SourceReads.GetValueOrDefault(source.Key);
             if (!Settings.Enabled || !Settings.HasDestination || snapshot.ErrorMessage is not null
-                || snapshot.RefreshedAt <= state.LastRead || snapshot.RefreshedAt < clock().AddMinutes(-10)
+                || snapshot.RefreshedAt <= lastRead || snapshot.RefreshedAt < clock().AddMinutes(-10)
                 || snapshot.RefreshedAt > clock().AddMinutes(1)) return;
             using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, configurationChanged.Token);
-            state.LastRead = snapshot.RefreshedAt;
-            if (Settings.Weekly) await ObserveAsync("weekly", snapshot.Weekly, snapshot.RefreshedAt, linked.Token);
-            if (Settings.FiveHour) await ObserveAsync("5-hour", snapshot.FiveHour, snapshot.RefreshedAt, linked.Token);
+            if (original) state.LastRead = snapshot.RefreshedAt; else state.SourceReads[source.Key] = snapshot.RefreshedAt;
+            string key = source.AlertKeyPrefix, name = source.DisplayName;
+            if (Settings.Watches(source, fiveHour: false)) await ObserveAsync(key + "weekly", name + " weekly", snapshot.Weekly, snapshot.RefreshedAt, linked.Token);
+            if (Settings.Watches(source, fiveHour: true)) await ObserveAsync(key + "5-hour", name + " 5-hour", snapshot.FiveHour, snapshot.RefreshedAt, linked.Token);
             if (!PhoneNotificationFiles.Save(statePath, state)) Status = "Could not save notification state";
         }
         catch (OperationCanceledException) { }
@@ -100,7 +109,7 @@ internal sealed class PhoneNotifications : IDisposable
         }
         finally { gate.Release(); }
     }
-    private async Task ObserveAsync(string window, LimitReading reading, DateTimeOffset at, CancellationToken token)
+    private async Task ObserveAsync(string window, string label, LimitReading reading, DateTimeOffset at, CancellationToken token)
     {
         if (reading.State != LimitState.Available || reading.RemainingPercent is not int remaining
             || remaining is < 0 or > 100 || reading.ResetsAt is not DateTimeOffset resetsAt || resetsAt <= at) return;
@@ -120,15 +129,15 @@ internal sealed class PhoneNotifications : IDisposable
         previous.Previous = remaining;
         Queue(previous.Recovery, Settings.Recovery, remaining > 90, recovered);
         Queue(previous.Low, Settings.Low, remaining < 10, low);
-        await DeliverAsync(previous.Recovery, window, remaining, recovery: true, token);
-        await DeliverAsync(previous.Low, window, remaining, recovery: false, token);
+        await DeliverAsync(previous.Recovery, label, remaining, recovery: true, token);
+        await DeliverAsync(previous.Low, label, remaining, recovery: false, token);
     }
     private static void Queue(PhoneAlert alert, bool enabled, bool inRegion, bool crossed)
     {
         if (!enabled || !inRegion) alert.Pending = false;
         else if (crossed && !alert.Delivered && alert.Attempts < 3) alert.Pending = true;
     }
-    private async Task DeliverAsync(PhoneAlert alert, string window, int remaining, bool recovery, CancellationToken token)
+    private async Task DeliverAsync(PhoneAlert alert, string label, int remaining, bool recovery, CancellationToken token)
     {
         if (!alert.Pending || alert.Delivered || alert.Attempts >= 3) return;
         token.ThrowIfCancellationRequested();
@@ -138,7 +147,7 @@ internal sealed class PhoneNotifications : IDisposable
         {
             alert.Attempts--; Status = "Could not save notification state; nothing sent"; return;
         }
-        string title = recovery ? $"Codex {window}: quota available again" : $"Codex {window}: quota below 10%";
+        string title = recovery ? $"{label}: quota available again" : $"{label}: quota below 10%";
         string message = recovery ? $"Back above 90%: {remaining}% remaining."
             : $"{remaining}% remaining. Consider slowing down until this window resets.";
         try
@@ -180,7 +189,7 @@ internal sealed class PhoneNotifications : IDisposable
         try
         {
             if (!Settings.HasDestination) return "Configure and save an ntfy topic first.";
-            HttpStatusCode code = await PublishAsync(Settings, "Codex quota notifications: test",
+            HttpStatusCode code = await PublishAsync(Settings, "Quota notifications: test",
                 "Phone notifications are connected. This is a test, not a quota change.", "test_tube", token);
             return (int)code is >= 200 and < 300 ? "ntfy accepted the test. Check your phone to confirm delivery." : $"Test failed: HTTP {(int)code}.";
         }

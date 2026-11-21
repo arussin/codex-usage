@@ -49,6 +49,10 @@ The app never reads Claude's stored credentials. It only runs the CLI, the same 
 
 Claude Code marks the `usage_report` format as experimental. If a Claude Code update changes it, the Claude numbers show `--` and the popup explains why; Codex is unaffected.
 
+## Phone alerts
+
+The optional [phone notifications](PHONE_NOTIFICATIONS.md) can watch Claude too. Under **Phone notifications**, tick **Claude weekly** or **Claude 5-hour**. They are off until you tick them.
+
 ## JSON export
 
 With **JSON export** enabled, Claude's readings are written to `claude.json` in the same folder as the configured output file. It uses the [same contract](JSON_EXPORT.md) as `usage.json`: `fiveHour`, `weekly` (all models) and `refreshedAt`. Per-model weekly limits are not exported.

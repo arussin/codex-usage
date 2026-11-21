@@ -122,6 +122,27 @@ internal static class PhoneNotificationTests
                 now = now.AddMinutes(5); await second.ProcessAsync(Read(93, cycle));
                 Check(fail.Count == 1 && succeed.Count == 1, "Pending retry did not survive restart exactly once.");
             }
+            // A second source keeps its own windows, wording and last-read time.
+            string sources = Path.Combine(directory, "sources");
+            FakeHandler sourcesHttp = new();
+            using (PhoneNotifications both = new(sources, sourcesHttp, () => now))
+            {
+                await both.ConfigureAsync(settings with { ClaudeFiveHour = true });
+                DateTimeOffset session = now.AddHours(4);
+                UsageSnapshot Claude(int fiveHour, int weekly) => new(
+                    new(LimitState.Available, fiveHour, session), new(LimitState.Available, weekly, cycle), now, null);
+                now = now.AddMinutes(5); await both.ProcessAsync(UsageSources.Claude, Claude(50, 5));
+                await both.ProcessAsync(Read(50, cycle));
+                Check(sourcesHttp.Count == 0, "A first reading of a second source caused an alert.");
+                now = now.AddMinutes(5); await both.ProcessAsync(UsageSources.Claude, Claude(8, 4));
+                Check(sourcesHttp.Count == 1 && sourcesHttp.Titles[^1] == "Claude 5-hour: quota below 10%", "Claude 5-hour low alert failed.");
+                await both.ProcessAsync(Read(9, cycle));
+                Check(sourcesHttp.Count == 2 && sourcesHttp.Titles[^1] == "Codex weekly: quota below 10%", "A reading taken at the same moment as another source's was dropped.");
+                now = now.AddMinutes(5); await both.ProcessAsync(UsageSources.Claude, Claude(7, 3));
+                Check(sourcesHttp.Count == 2, "An unselected Claude window sent a notification, or a Claude alert repeated.");
+                string saved = File.ReadAllText(Path.Combine(sources, "phone-notification-state.json"));
+                Check(saved.Contains("claude-5-hour") && !saved.Contains("claude-weekly"), "Claude windows were stored under the wrong keys.");
+            }
             Console.WriteLine($"Phone notification self-tests passed ({checks} checks; no real notifications sent)."); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine($"Phone notification test failed: {ex.Message}"); return 1; }

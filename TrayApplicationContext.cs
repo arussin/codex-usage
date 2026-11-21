@@ -257,10 +257,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             runtime.History.Record(snapshot.Weekly, snapshot.RefreshedAt);
             ApplySnapshot(runtime);
             ShowLowUsageAlerts(runtime);
-            if (runtime.Source.SendsPhoneNotifications)
-            {
-                _ = _phoneNotifications.ProcessAsync(snapshot, _shutdown.Token);
-            }
+            _ = _phoneNotifications.ProcessAsync(runtime.Source, snapshot, _shutdown.Token);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
