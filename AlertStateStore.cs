@@ -4,6 +4,11 @@ namespace CodexUsageTray;
 
 internal sealed class AlertStateStore
 {
+    /// <summary>
+    /// The remaining percentage at or below which a window counts as low.
+    /// </summary>
+    internal const int LowPercent = 20;
+
     private readonly string filePath;
     private readonly Dictionary<string, long> alertedResets;
 
@@ -29,7 +34,7 @@ internal sealed class AlertStateStore
     internal bool ShouldAlert(string windowKey, LimitReading reading)
     {
         if (reading.State != LimitState.Available
-            || reading.RemainingPercent is null or > 20
+            || reading.RemainingPercent is null or > LowPercent
             || reading.ResetsAt is null)
         {
             return false;

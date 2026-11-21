@@ -19,6 +19,12 @@ The document contains only `fiveHour`, `weekly`, and `refreshedAt`. Each limit c
 
 `refreshedAt` is the PC clock time when the existing reader parsed a successful Codex response, not a server timestamp, file-copy time, or widget-tap time. All values come from the already-normalized `UsageSnapshot`. No raw response, error text, account identifiers, credentials, or path is serialized.
 
+## Additional sources
+
+The configured output file always carries Codex. When a [Claude tray number](CLAUDE.md) is ticked and export is enabled, Claude's readings go to `claude.json` in the same directory, with the same three fields and its own `refreshedAt`. Enabling export is the consent for every source whose tray numbers you have ticked. If the configured file is itself named `claude.json`, Claude uses `claude-usage.json` so that it never replaces the configured file.
+
+Each file is written, and preserved on failure, independently. A source that is switched off leaves its last file in place to age.
+
 ## Cadence and failure behavior
 
 The existing five-minute timer, initial refresh, manual Refresh, and popup-open refresh feed the exporter. There is no separate export frequency or selectable field list. Those settings would add freshness/schema variants without a demonstrated need.

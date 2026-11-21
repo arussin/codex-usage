@@ -19,22 +19,30 @@ internal sealed class UsagePopup : Form
     private readonly CheckBox _plotAllHistoryToggle = new();
     private readonly Label _status = new();
     private readonly Label _error = new();
+    private readonly Label[] _scopedLimits;
+    private readonly string _sourceName;
     private readonly System.Windows.Forms.Timer _countdownTimer = new() { Interval = 1_000 };
     private UsageSnapshot _snapshot = UsageSnapshot.Initial();
     private IReadOnlyList<UsageHistoryPoint> _history = [];
     private bool _refreshing;
 
     /// <summary>
-    /// Creates the compact combined usage popup.
+    /// Creates the compact combined usage popup for one source.
     /// </summary>
-    internal UsagePopup()
+    /// <param name="sourceName">The user-facing source name.</param>
+    /// <param name="scopedRows">How many scoped weekly limits to leave room for.</param>
+    internal UsagePopup(string sourceName = "Codex", int scopedRows = 0)
     {
+        _sourceName = sourceName;
+        // Each scoped limit is one text row between the weekly figures and the status line.
+        const int ScopedRowHeight = 19;
+        int scopedHeight = scopedRows * ScopedRowHeight;
         SuspendLayout();
         // Bounds below are designed at 96 DPI; scale text and layout together.
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "Codex usage";
-        ClientSize = new Size(360, 515);
+        Text = $"{sourceName} usage";
+        ClientSize = new Size(360, 515 + scopedHeight);
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -47,7 +55,7 @@ internal sealed class UsagePopup : Form
             AutoSize = true,
             Font = new Font(Font, FontStyle.Bold),
             Location = new Point(12, 12),
-            Text = "Codex limits",
+            Text = $"{sourceName} limits",
         };
         ConfigureValueLabel(_fiveHourValue, "5-hour", 45);
         ConfigureProgress(_fiveHourProgress, 65);
@@ -80,13 +88,20 @@ internal sealed class UsagePopup : Form
         ConfigureResetLabel(_weeklyEndOfDay, 407);
         ConfigureResetLabel(_weeklyLeft, 426);
         ConfigureResetLabel(_weeklyReset, 445);
+        _scopedLimits = new Label[scopedRows];
+        for (int row = 0; row < scopedRows; row++)
+        {
+            _scopedLimits[row] = new Label();
+            ConfigureResetLabel(_scopedLimits[row], 464 + (row * ScopedRowHeight));
+        }
 
-        _status.SetBounds(12, 473, 336, 18);
+        _status.SetBounds(12, 473 + scopedHeight, 336, 18);
         _status.ForeColor = SystemColors.GrayText;
-        _error.SetBounds(12, 492, 336, 20);
+        _error.SetBounds(12, 492 + scopedHeight, 336, 20);
         _error.AutoEllipsis = true;
         _error.ForeColor = Color.Firebrick;
 
+        Controls.AddRange(_scopedLimits);
         Controls.AddRange([
             title,
             _fiveHourValue,
@@ -243,7 +258,7 @@ internal sealed class UsagePopup : Form
             TextFormatFlags.Left | TextFormatFlags.NoPadding);
 
         DateTimeOffset cycleEnd = reading.ResetsAt ?? DateTimeOffset.Now;
-        DateTimeOffset cycleStart = cycleEnd.AddMinutes(-CodexRateLimitReader.WeeklyMinutes);
+        DateTimeOffset cycleStart = cycleEnd.AddMinutes(-LimitWindows.WeeklyMinutes);
         UsageHistoryPoint[] selectedHistory = SelectPlotHistory(
             history,
             cycleStart,
@@ -539,9 +554,9 @@ internal sealed class UsagePopup : Form
         {
             AddExtension = true,
             DefaultExt = "csv",
-            FileName = $"codex-usage-history-{DateTime.Now:yyyy-MM-dd}.csv",
+            FileName = $"{_sourceName.ToLowerInvariant()}-usage-history-{DateTime.Now:yyyy-MM-dd}.csv",
             Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-            Title = "Download Codex usage history",
+            Title = $"Download {_sourceName} usage history",
         };
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
@@ -601,6 +616,13 @@ internal sealed class UsagePopup : Form
         _weeklyDailyRates.Text = FormatWeeklyDailyRates(_snapshot.Weekly, DateTimeOffset.Now);
         _weeklyEndOfDay.Text = FormatWeeklyEndOfDayTarget(_snapshot.Weekly, DateTimeOffset.Now);
         _weeklyLeft.Text = FormatWeeklyLeft(_snapshot.Weekly, DateTimeOffset.Now);
+        for (int row = 0; row < _scopedLimits.Length; row++)
+        {
+            _scopedLimits[row].Text = row < _snapshot.Scoped.Count
+                ? FormatScopedLimit(_snapshot.Scoped[row])
+                : string.Empty;
+        }
+
         _status.Text = _refreshing
             ? "Refreshing…"
             : _snapshot.ErrorMessage is not null
@@ -608,6 +630,24 @@ internal sealed class UsagePopup : Form
                 : $"Updated {_snapshot.RefreshedAt.ToLocalTime():HH:mm:ss}";
         _error.Text = _snapshot.ErrorMessage ?? string.Empty;
         _error.Visible = !string.IsNullOrWhiteSpace(_snapshot.ErrorMessage);
+    }
+
+    /// <summary>
+    /// Describes one scoped weekly limit on a single line.
+    /// </summary>
+    /// <param name="limit">The scoped limit.</param>
+    /// <returns>The label, remaining percentage and reset countdown.</returns>
+    internal static string FormatScopedLimit(ScopedLimit limit)
+    {
+        LimitReading reading = limit.Reading;
+        if (reading.State != LimitState.Available || reading.RemainingPercent is not int remaining)
+        {
+            return $"{limit.Label} weekly: N/A";
+        }
+
+        string reset = FormatReset(reading.ResetsAt);
+        return $"{limit.Label} weekly: {Math.Clamp(remaining, 0, 100)}% remaining · "
+            + char.ToLowerInvariant(reset[0]) + reset[1..];
     }
 
     /// <summary>
@@ -625,7 +665,7 @@ internal sealed class UsagePopup : Form
             return "Per-day rates unavailable";
         }
 
-        double windowDays = TimeSpan.FromMinutes(CodexRateLimitReader.WeeklyMinutes).TotalDays;
+        double windowDays = TimeSpan.FromMinutes(LimitWindows.WeeklyMinutes).TotalDays;
         double daysLeft = Math.Clamp((resetsAt - now).TotalDays, 0, windowDays);
         double daysElapsed = windowDays - daysLeft;
         if (daysElapsed <= 0 || daysLeft <= 0)
@@ -723,7 +763,7 @@ internal sealed class UsagePopup : Form
             return false;
         }
 
-        double windowDays = TimeSpan.FromMinutes(CodexRateLimitReader.WeeklyMinutes).TotalDays;
+        double windowDays = TimeSpan.FromMinutes(LimitWindows.WeeklyMinutes).TotalDays;
         double daysLeft = Math.Clamp((resetsAt - now).TotalDays, 0, windowDays);
         int wholeDaysLeft = (int)Math.Floor(daysLeft);
         targetPercent = 100d * wholeDaysLeft / windowDays;
@@ -757,7 +797,7 @@ internal sealed class UsagePopup : Form
     /// <summary>
     /// Formats a reset timestamp as a live countdown.
     /// </summary>
-    /// <param name="resetsAt">The local reset timestamp, if supplied by Codex.</param>
+    /// <param name="resetsAt">The local reset timestamp, if the source supplied one.</param>
     /// <returns>A short reset description.</returns>
     private static string FormatReset(DateTimeOffset? resetsAt)
     {
