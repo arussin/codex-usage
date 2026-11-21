@@ -13,13 +13,15 @@ The app looks for `claude.exe` in this order: `%USERPROFILE%\.local\bin`, the fo
 
 Right-click any tray number → **Tray numbers**, then tick what you want to watch.
 
-| Tray number | Shows | Bar under the digits |
+| Tray number | Shows | Frame |
 | --- | --- | --- |
 | Codex weekly | Weekly Codex allowance remaining | None (the original icon) |
-| Codex 5-hour | Five-hour Codex allowance remaining | Grey, half width |
-| Claude 5-hour | Current Claude session window remaining | Orange, half width |
-| Claude weekly | Weekly Claude allowance, all models | Orange, full width |
-| Claude model weekly | The per-model weekly limit closest to running out | Orange, split |
+| Codex 5-hour | Five-hour Codex allowance remaining | Teal circle |
+| Claude 5-hour | Current Claude session window remaining | Orange circle |
+| Claude weekly | Weekly Claude allowance, all models | Orange square |
+| Claude model weekly | The per-model weekly limit closest to running out | Orange square with a filled corner |
+
+The frame's colour names the source and its shape names the window: a circle, like a clock, is the five-hour window; a square, like a calendar page, is a week. The **Tray numbers** menu repeats each frame in words.
 
 Hover over a number to read its name and value. Left-click a number to open that source's popup. The Claude popup lists every per-model weekly limit on its own line.
 

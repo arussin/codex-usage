@@ -45,7 +45,8 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             _sources.Add(runtime);
             foreach (LimitWindow window in source.Windows)
             {
-                ToolStripMenuItem item = new($"{source.DisplayName} {UsageSource.WindowName(window)}")
+                ToolStripMenuItem item = new(
+                    $"{source.DisplayName} {UsageSource.WindowName(window)} ({DescribeFrame(source, window)})")
                 {
                     Checked = _trayNumbers.IsShown(source, window),
                 };
@@ -301,7 +302,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
                 ? TrayIconRenderer.ResolveShortWindowColor(reading)
                 : TrayIconRenderer.ResolveTextColor(UsagePopup.CalculateWeeklyLeft(reading, DateTimeOffset.Now));
             number.Show(
-                TrayIconRenderer.Render(reading, textColor, ResolveBar(source, window), source.BarColor),
+                TrayIconRenderer.Render(reading, textColor, ResolveFrame(source, window), source.FrameColor),
                 FormatTooltip($"{source.DisplayName} {UsageSource.WindowName(window, scoped?.Label)}", reading));
         }
 
@@ -320,18 +321,33 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             .FirstOrDefault();
 
     /// <summary>
-    /// Chooses the bar that tells one tray number from another. The original single
-    /// weekly number keeps its plain look; every other number carries its source's colour.
+    /// Chooses the frame that tells one tray number from another. The original single
+    /// weekly number keeps its plain look; every other number is framed in its source's colour.
     /// </summary>
     /// <param name="source">The source that owns the number.</param>
     /// <param name="window">The window the number shows.</param>
-    /// <returns>Half for five-hour, split for scoped, and full or none for weekly.</returns>
-    internal static TrayBar ResolveBar(UsageSource source, LimitWindow window) => window switch
+    /// <returns>A circle for five-hour, a flagged square for scoped, and a square or nothing for weekly.</returns>
+    internal static TrayFrame ResolveFrame(UsageSource source, LimitWindow window) => window switch
     {
-        LimitWindow.FiveHour => TrayBar.Half,
-        LimitWindow.Scoped => TrayBar.Split,
-        _ => source == UsageSources.Codex ? TrayBar.None : TrayBar.Full,
+        LimitWindow.FiveHour => TrayFrame.Circle,
+        LimitWindow.Scoped => TrayFrame.Flagged,
+        _ => source == UsageSources.Codex ? TrayFrame.None : TrayFrame.Square,
     };
+
+    /// <summary>
+    /// Describes a tray number's frame in words, so the menu doubles as a legend.
+    /// </summary>
+    /// <param name="source">The source that owns the number.</param>
+    /// <param name="window">The window the number shows.</param>
+    /// <returns>A short description such as "orange circle".</returns>
+    internal static string DescribeFrame(UsageSource source, LimitWindow window) =>
+        ResolveFrame(source, window) switch
+        {
+            TrayFrame.Square => $"{source.FrameColorName} square",
+            TrayFrame.Circle => $"{source.FrameColorName} circle",
+            TrayFrame.Flagged => $"{source.FrameColorName} square, filled corner",
+            _ => "no frame",
+        };
 
     /// <summary>
     /// Formats one short tray tooltip.

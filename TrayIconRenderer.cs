@@ -1,36 +1,45 @@
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
 namespace CodexUsageTray;
 
 /// <summary>
-/// The bar drawn under a tray number so several numbers can be told apart at a glance.
+/// The frame drawn around a tray number so several numbers can be told apart at a glance.
+/// Its colour names the source; its shape names the window.
 /// </summary>
-internal enum TrayBar
+internal enum TrayFrame
 {
+    /// <summary>No frame: the original single weekly number.</summary>
     None,
-    Half,
-    Full,
-    Split,
+
+    /// <summary>A square, like a calendar page: a weekly window.</summary>
+    Square,
+
+    /// <summary>A circle, like a clock: the five-hour window.</summary>
+    Circle,
+
+    /// <summary>A square with a filled corner: a weekly limit scoped to one model.</summary>
+    Flagged,
 }
 
 internal static class TrayIconRenderer
 {
     private const int IconSize = 32;
-    private const int BarHeight = 4;
+    private const float FrameWidth = 3;
 
     /// <summary>
     /// Renders a numeric tray icon for one rate-limit window.
     /// </summary>
     /// <param name="reading">The normalized limit reading.</param>
     /// <param name="textColor">The colour of the digits.</param>
-    /// <param name="bar">The bar shape under the digits.</param>
-    /// <param name="barColor">The bar colour, identifying the source.</param>
+    /// <param name="frame">The frame shape around the digits.</param>
+    /// <param name="frameColor">The frame colour, identifying the source.</param>
     /// <returns>An independently owned Windows icon.</returns>
     internal static Icon Render(
         LimitReading reading,
         Color textColor,
-        TrayBar bar = TrayBar.None,
-        Color barColor = default)
+        TrayFrame frame = TrayFrame.None,
+        Color frameColor = default)
     {
         string text = reading.State == LimitState.Available && reading.RemainingPercent is int remaining
             ? Math.Clamp(remaining, 0, 100).ToString()
@@ -39,10 +48,12 @@ internal static class TrayIconRenderer
         using Bitmap bitmap = new(IconSize, IconSize);
         using Graphics graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.Transparent);
+        DrawFrame(graphics, frame, frameColor);
 
-        // A bar takes the bottom rows, so the digits move up to stay clear of it.
-        int textHeight = bar == TrayBar.None ? IconSize : IconSize - BarHeight;
-        float fontSize = text.Length == 3 ? 14 : 22;
+        // Framed digits are smaller so they stay clear of the frame.
+        float fontSize = frame == TrayFrame.None
+            ? (text.Length == 3 ? 14 : 22)
+            : (text.Length == 3 ? 13 : 18);
         using Font font = new("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
         TextFormatFlags flags =
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
@@ -50,17 +61,16 @@ internal static class TrayIconRenderer
             graphics,
             text,
             font,
-            new Rectangle(1, 1, IconSize, textHeight),
+            new Rectangle(1, 1, IconSize, IconSize),
             Color.Black,
             flags);
         TextRenderer.DrawText(
             graphics,
             text,
             font,
-            new Rectangle(0, 0, IconSize, textHeight),
+            new Rectangle(0, 0, IconSize, IconSize),
             textColor,
             flags);
-        DrawBar(graphics, bar, barColor);
 
         IntPtr handle = bitmap.GetHicon();
         try
@@ -75,33 +85,45 @@ internal static class TrayIconRenderer
     }
 
     /// <summary>
-    /// Draws the identifying bar along the bottom edge of the icon.
+    /// Draws the identifying frame around the edge of the icon.
     /// </summary>
     /// <param name="graphics">The icon drawing surface.</param>
-    /// <param name="bar">The bar shape.</param>
-    /// <param name="barColor">The bar colour.</param>
-    private static void DrawBar(Graphics graphics, TrayBar bar, Color barColor)
+    /// <param name="frame">The frame shape.</param>
+    /// <param name="frameColor">The frame colour.</param>
+    private static void DrawFrame(Graphics graphics, TrayFrame frame, Color frameColor)
     {
-        if (bar == TrayBar.None)
+        if (frame == TrayFrame.None)
         {
             return;
         }
 
-        int top = IconSize - BarHeight;
-        using SolidBrush brush = new(barColor);
-        switch (bar)
+        SmoothingMode previous = graphics.SmoothingMode;
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        float inset = FrameWidth / 2;
+        float side = IconSize - FrameWidth;
+        using Pen pen = new(frameColor, FrameWidth);
+        if (frame == TrayFrame.Circle)
         {
-            case TrayBar.Half:
-                graphics.FillRectangle(brush, 0, top, IconSize / 2, BarHeight);
-                break;
-            case TrayBar.Split:
-                graphics.FillRectangle(brush, 0, top, 12, BarHeight);
-                graphics.FillRectangle(brush, IconSize - 12, top, 12, BarHeight);
-                break;
-            default:
-                graphics.FillRectangle(brush, 0, top, IconSize, BarHeight);
-                break;
+            graphics.DrawEllipse(pen, inset, inset, side, side);
         }
+        else
+        {
+            const float Corner = 10;
+            using GraphicsPath square = new();
+            square.AddArc(inset, inset, Corner, Corner, 180, 90);
+            square.AddArc(inset + side - Corner, inset, Corner, Corner, 270, 90);
+            square.AddArc(inset + side - Corner, inset + side - Corner, Corner, Corner, 0, 90);
+            square.AddArc(inset, inset + side - Corner, Corner, Corner, 90, 90);
+            square.CloseFigure();
+            graphics.DrawPath(pen, square);
+            if (frame == TrayFrame.Flagged)
+            {
+                using SolidBrush brush = new(frameColor);
+                graphics.FillPolygon(brush, [new PointF(18, 1), new PointF(31, 1), new PointF(31, 14)]);
+            }
+        }
+
+        graphics.SmoothingMode = previous;
     }
 
     /// <summary>

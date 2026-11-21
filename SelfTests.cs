@@ -205,12 +205,18 @@ internal static class SelfTests
                 "Settings with no tray numbers left the menu unreachable.");
 
             Check(
-                TrayApplicationContext.ResolveBar(codex, LimitWindow.Weekly) == TrayBar.None
-                    && TrayApplicationContext.ResolveBar(codex, LimitWindow.FiveHour) == TrayBar.Half
-                    && TrayApplicationContext.ResolveBar(claude, LimitWindow.Weekly) == TrayBar.Full
-                    && TrayApplicationContext.ResolveBar(claude, LimitWindow.FiveHour) == TrayBar.Half
-                    && TrayApplicationContext.ResolveBar(claude, LimitWindow.Scoped) == TrayBar.Split,
+                TrayApplicationContext.ResolveFrame(codex, LimitWindow.Weekly) == TrayFrame.None
+                    && TrayApplicationContext.ResolveFrame(codex, LimitWindow.FiveHour) == TrayFrame.Circle
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.Weekly) == TrayFrame.Square
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.FiveHour) == TrayFrame.Circle
+                    && TrayApplicationContext.ResolveFrame(claude, LimitWindow.Scoped) == TrayFrame.Flagged
+                    && codex.FrameColor != claude.FrameColor,
                 "Tray numbers were not distinguishable.");
+            Check(
+                TrayApplicationContext.DescribeFrame(codex, LimitWindow.Weekly) == "no frame"
+                    && TrayApplicationContext.DescribeFrame(claude, LimitWindow.Weekly) == "orange square"
+                    && TrayApplicationContext.DescribeFrame(claude, LimitWindow.FiveHour) == "orange circle",
+                "The tray number legend was incorrect.");
             LimitReading reading = new(LimitState.Available, 32, now.AddHours(2));
             Check(
                 TrayIconRenderer.ResolveShortWindowColor(reading) == Color.LimeGreen
@@ -218,10 +224,11 @@ internal static class SelfTests
                     && TrayIconRenderer.ResolveShortWindowColor(reading with { State = LimitState.Unavailable })
                         == Color.Gray,
                 "Five-hour tray text colour was incorrect.");
-            foreach (TrayBar bar in Enum.GetValues<TrayBar>())
+            foreach (TrayFrame frame in Enum.GetValues<TrayFrame>())
             {
-                using Icon icon = TrayIconRenderer.Render(reading, Color.LimeGreen, bar, claude.BarColor);
+                using Icon icon = TrayIconRenderer.Render(reading, Color.LimeGreen, frame, claude.FrameColor);
                 Check(icon.Width > 0, "A tray number could not be rendered.");
+                SavePreview(icon, $"tray-number-{frame}".ToLowerInvariant());
             }
         }
         finally
@@ -584,6 +591,24 @@ internal static class SelfTests
         bitmap.Save(
             Path.Combine(directory, popup.Text.Replace(' ', '-').ToLowerInvariant() + ".png"),
             System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    /// <summary>
+    /// Saves a picture of a tray number when CODEX_USAGE_TRAY_PREVIEW_DIR names a folder.
+    /// </summary>
+    /// <param name="icon">The rendered tray icon.</param>
+    /// <param name="name">The file name without its extension.</param>
+    private static void SavePreview(Icon icon, string name)
+    {
+        string? directory = Environment.GetEnvironmentVariable("CODEX_USAGE_TRAY_PREVIEW_DIR");
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+        using Bitmap bitmap = icon.ToBitmap();
+        bitmap.Save(Path.Combine(directory, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
     }
 
     /// <summary>

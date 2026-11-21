@@ -19,7 +19,8 @@ internal enum LimitWindow
 /// <param name="Key">The stable lower-case name used in settings.</param>
 /// <param name="DisplayName">The user-facing name.</param>
 /// <param name="CreateReader">Creates the source's usage reader.</param>
-/// <param name="BarColor">The colour of the bar drawn under this source's tray numbers.</param>
+/// <param name="FrameColor">The colour of the frame drawn around this source's tray numbers.</param>
+/// <param name="FrameColorName">That colour in words, for the menu.</param>
 /// <param name="HistoryFileName">The weekly history file kept in local application data.</param>
 /// <param name="ExportFileName">The JSON file written beside the configured export file, or null for that file itself.</param>
 /// <param name="AlertKeyPrefix">The prefix of this source's low-usage alert keys.</param>
@@ -30,7 +31,8 @@ internal sealed record UsageSource(
     string Key,
     string DisplayName,
     Func<IUsageReader> CreateReader,
-    Color BarColor,
+    Color FrameColor,
+    string FrameColorName,
     string HistoryFileName,
     string? ExportFileName,
     string AlertKeyPrefix,
@@ -67,7 +69,8 @@ internal static class UsageSources
         "codex",
         "Codex",
         () => new CodexRateLimitReader(),
-        Color.Silver,
+        Color.FromArgb(0x2D, 0xB8, 0xA0),
+        "teal",
         "usage-history.json",
         ExportFileName: null,
         AlertKeyPrefix: string.Empty,
@@ -81,6 +84,7 @@ internal static class UsageSources
         "Claude",
         () => new ClaudeUsageReader(),
         Color.FromArgb(0xD9, 0x77, 0x57),
+        "orange",
         "claude-usage-history.json",
         ExportFileName: "claude.json",
         AlertKeyPrefix: "claude-",
