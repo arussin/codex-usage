@@ -7,6 +7,8 @@ internal sealed record PhoneNotificationSettings
     public bool Enabled { get; init; }
     public bool Weekly { get; init; } = true;
     public bool FiveHour { get; init; }
+    public bool ClaudeWeekly { get; init; }
+    public bool ClaudeFiveHour { get; init; }
     public bool Recovery { get; init; } = true;
     public bool Low { get; init; }
     public string Server { get; init; } = "https://ntfy.sh";
@@ -18,6 +20,10 @@ internal sealed record PhoneNotificationSettings
         && uri.AbsolutePath == "/" && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
         && Topic is not null && Regex.IsMatch(Topic, "\\A[A-Za-z0-9_-]{1,64}\\z");
     internal bool IsValid => HasDestination || (!Enabled && string.IsNullOrEmpty(Topic));
+    // Weekly and FiveHour keep their names so settings saved before Claude was added still mean Codex.
+    internal bool Watches(UsageSource source, bool fiveHour) => source.Key == UsageSources.Claude.Key
+        ? (fiveHour ? ClaudeFiveHour : ClaudeWeekly)
+        : (fiveHour ? FiveHour : Weekly);
 }
 // Separate from the public JSON export. Missing/corrupt preferences never opt in.
 internal static class PhoneNotificationFiles

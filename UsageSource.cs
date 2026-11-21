@@ -23,8 +23,7 @@ internal enum LimitWindow
 /// <param name="FrameColorName">That colour in words, for the menu.</param>
 /// <param name="HistoryFileName">The weekly history file kept in local application data.</param>
 /// <param name="ExportFileName">The JSON file written beside the configured export file, or null for that file itself.</param>
-/// <param name="AlertKeyPrefix">The prefix of this source's low-usage alert keys.</param>
-/// <param name="SendsPhoneNotifications">Whether readings feed the optional phone notifications.</param>
+/// <param name="AlertKeyPrefix">The prefix of this source's alert keys, empty for the original source.</param>
 /// <param name="ScopedRows">How many scoped weekly limits the popup has room for.</param>
 /// <param name="DefaultNumbers">The tray numbers shown before the user chooses.</param>
 internal sealed record UsageSource(
@@ -36,7 +35,6 @@ internal sealed record UsageSource(
     string HistoryFileName,
     string? ExportFileName,
     string AlertKeyPrefix,
-    bool SendsPhoneNotifications,
     int ScopedRows,
     IReadOnlyList<LimitWindow> DefaultNumbers)
 {
@@ -74,7 +72,6 @@ internal static class UsageSources
         "usage-history.json",
         ExportFileName: null,
         AlertKeyPrefix: string.Empty,
-        SendsPhoneNotifications: true,
         ScopedRows: 0,
         DefaultNumbers: [LimitWindow.Weekly]);
 
@@ -88,7 +85,6 @@ internal static class UsageSources
         "claude-usage-history.json",
         ExportFileName: "claude.json",
         AlertKeyPrefix: "claude-",
-        SendsPhoneNotifications: false,
         ScopedRows: 2,
         DefaultNumbers: []);
 
