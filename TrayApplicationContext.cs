@@ -253,7 +253,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             }
 
             runtime.Snapshot = snapshot;
-            _jsonExport.Save(snapshot, runtime.Source.ExportFileName);
+            _jsonExport.Save(snapshot, runtime.Source.ExportFileName, includeScoped: runtime.Source.ScopedRows > 0);
             runtime.History.Record(snapshot.Weekly, snapshot.RefreshedAt);
             ApplySnapshot(runtime);
             ShowLowUsageAlerts(runtime);
@@ -288,7 +288,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
         UsageSnapshot snapshot = runtime.Snapshot;
         foreach ((LimitWindow window, TrayNumber number) in runtime.Numbers)
         {
-            ScopedLimit? scoped = window == LimitWindow.Scoped ? TightestScoped(snapshot) : null;
+            ScopedLimit? scoped = window == LimitWindow.Scoped ? snapshot.TightestScoped() : null;
             LimitReading reading = window switch
             {
                 LimitWindow.FiveHour => snapshot.FiveHour,
@@ -305,17 +305,6 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
 
         runtime.Popup.UpdateSnapshot(snapshot, runtime.Refreshing, runtime.History.Points);
     }
-
-    /// <summary>
-    /// Picks the scoped weekly limit closest to running out, which is the one worth a tray number.
-    /// </summary>
-    /// <param name="snapshot">The snapshot to search.</param>
-    /// <returns>The tightest available scoped limit, or null when the source reports none.</returns>
-    private static ScopedLimit? TightestScoped(UsageSnapshot snapshot) =>
-        snapshot.Scoped
-            .Where(limit => limit.Reading.State == LimitState.Available && limit.Reading.RemainingPercent is int)
-            .OrderBy(limit => limit.Reading.RemainingPercent)
-            .FirstOrDefault();
 
     /// <summary>
     /// Chooses the frame that tells one tray number from another. The original single

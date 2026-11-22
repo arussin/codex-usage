@@ -33,6 +33,15 @@ internal sealed record UsageSnapshot(
     internal IReadOnlyList<ScopedLimit> Scoped { get; init; } = [];
 
     /// <summary>
+    /// Picks the scoped weekly limit closest to running out, the one worth showing on its own.
+    /// </summary>
+    /// <returns>The tightest available scoped limit, or null when the source reports none.</returns>
+    internal ScopedLimit? TightestScoped() => Scoped
+        .Where(limit => limit.Reading.State == LimitState.Available && limit.Reading.RemainingPercent is int)
+        .OrderBy(limit => limit.Reading.RemainingPercent)
+        .FirstOrDefault();
+
+    /// <summary>
     /// Creates a snapshot where both windows are unavailable because a refresh failed.
     /// </summary>
     /// <param name="message">The actionable failure message.</param>

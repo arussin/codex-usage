@@ -44,14 +44,15 @@ internal sealed class JsonExportController
     /// <param name="siblingFileName">
     /// A file name beside the configured output for an additional source, or null for the configured file.
     /// </param>
-    internal void Save(UsageSnapshot snapshot, string? siblingFileName = null)
+    /// <param name="includeScoped">Whether the source has scoped weekly limits to publish as well.</param>
+    internal void Save(UsageSnapshot snapshot, string? siblingFileName = null, bool includeScoped = false)
     {
         if (Settings.Enabled)
         {
             string path = siblingFileName is null
                 ? Settings.OutputPath
                 : SiblingPath(Settings.OutputPath, siblingFileName);
-            new JsonSnapshotStore(path).Save(snapshot);
+            new JsonSnapshotStore(path).Save(snapshot, includeScoped);
         }
     }
 

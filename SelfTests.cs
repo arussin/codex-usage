@@ -266,23 +266,66 @@ internal static class SelfTests
         {
             JsonExportController export = new(new JsonExportSettingsStore(Path.Combine(directory, "settings.json")));
             Check(export.TryConfigure(new(false, configured)), "Could not configure a disabled destination.");
-            export.Save(claude, "claude.json");
+            export.Save(claude, "claude.json", includeScoped: true);
             Check(!File.Exists(sibling), "Disabled export created an additional source's snapshot.");
             Check(export.TryConfigure(new(true, configured)), "Could not enable export.");
             export.Save(codex);
             string codexJson = File.ReadAllText(configured);
-            export.Save(claude, "claude.json");
+            export.Save(claude, "claude.json", includeScoped: true);
             Check(File.ReadAllText(configured) == codexJson, "An additional source changed the configured file.");
             using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
             {
                 System.Text.Json.JsonElement root = document.RootElement;
-                CheckJsonFields(root, "fiveHour", "weekly", "refreshedAt");
+                CheckJsonFields(root, "fiveHour", "weekly", "weeklyScoped", "refreshedAt");
+                System.Text.Json.JsonElement scoped = root.GetProperty("weeklyScoped");
+                CheckJsonFields(scoped, "label", "available", "remaining", "resetsAt");
+                Check(
+                    scoped.GetProperty("label").GetString() == "Fable"
+                        && scoped.GetProperty("available").GetBoolean()
+                        && scoped.GetProperty("remaining").GetInt32() == 88
+                        && scoped.GetProperty("resetsAt").GetDateTimeOffset().EqualsExact(now.AddDays(2)),
+                    "The scoped weekly limit differed from the UI.");
                 Check(root.GetProperty("fiveHour").GetProperty("remaining").GetInt32() == 32, "Additional five-hour quota differed from the UI.");
                 Check(root.GetProperty("weekly").GetProperty("remaining").GetInt32() == 94, "Additional weekly quota differed from the UI.");
                 Check(root.GetProperty("refreshedAt").GetDateTimeOffset().EqualsExact(now.AddSeconds(1)), "Additional refresh timestamp changed.");
             }
 
-            export.Save(UsageSnapshot.Error("Sensitive error metadata must never be exported."), "claude.json");
+            // Two scoped limits publish the tighter one; none publishes an unavailable entry, never a stale one.
+            export.Save(
+                claude with
+                {
+                    RefreshedAt = now.AddSeconds(2),
+                    Scoped =
+                    [
+                        new ScopedLimit("Fable", new LimitReading(LimitState.Available, 88, now.AddDays(2))),
+                        new ScopedLimit("Other\u0007 model", new LimitReading(LimitState.Available, 12, null)),
+                    ],
+                },
+                "claude.json",
+                includeScoped: true);
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
+            {
+                System.Text.Json.JsonElement scoped = document.RootElement.GetProperty("weeklyScoped");
+                Check(
+                    scoped.GetProperty("label").GetString() == "Other model"
+                        && scoped.GetProperty("remaining").GetInt32() == 12
+                        && scoped.GetProperty("resetsAt").ValueKind == System.Text.Json.JsonValueKind.Null,
+                    "The tightest scoped weekly limit was not the one published.");
+            }
+
+            export.Save(claude with { RefreshedAt = now.AddSeconds(1), Scoped = [] }, "claude.json", includeScoped: true);
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
+            {
+                System.Text.Json.JsonElement scoped = document.RootElement.GetProperty("weeklyScoped");
+                Check(
+                    !scoped.GetProperty("available").GetBoolean()
+                        && scoped.GetProperty("label").ValueKind == System.Text.Json.JsonValueKind.Null
+                        && scoped.GetProperty("remaining").ValueKind == System.Text.Json.JsonValueKind.Null
+                        && scoped.GetProperty("resetsAt").ValueKind == System.Text.Json.JsonValueKind.Null,
+                    "A missing scoped weekly limit was not published as unavailable.");
+            }
+
+            export.Save(UsageSnapshot.Error("Sensitive error metadata must never be exported."), "claude.json", includeScoped: true);
             using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(sibling)))
             {
                 Check(
