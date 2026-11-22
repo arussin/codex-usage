@@ -55,7 +55,7 @@ The optional [phone notifications](PHONE_NOTIFICATIONS.md) can watch Claude too.
 
 ## JSON export
 
-With **JSON export** enabled, Claude's readings are written to `claude.json` in the same folder as the configured output file. It uses the [same contract](JSON_EXPORT.md) as `usage.json`: `fiveHour`, `weekly` (all models) and `refreshedAt`. Per-model weekly limits are not exported.
+With **JSON export** enabled, Claude's readings are written to `claude.json` in the same folder as the configured output file. It uses the [same contract](JSON_EXPORT.md) as `usage.json`: `fiveHour`, `weekly` (all models) and `refreshedAt`. It adds `weeklyScoped`, the per-model weekly limit closest to running out, with its `label`.
 
 An existing private file-serving setup for that folder serves `claude.json` at the same address with the new file name.
 

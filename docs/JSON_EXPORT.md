@@ -23,6 +23,8 @@ The document contains only `fiveHour`, `weekly`, and `refreshedAt`. Each limit c
 
 The configured output file always carries Codex. When a [Claude tray number](CLAUDE.md) is ticked and export is enabled, Claude's readings go to `claude.json` in the same directory, with the same three fields and its own `refreshedAt`. Enabling export is the consent for every source whose tray numbers you have ticked. If the configured file is itself named `claude.json`, Claude uses `claude-usage.json` so that it never replaces the configured file.
 
+`claude.json` also carries one more object, `weeklyScoped`: the per-model weekly limit closest to running out. It has `label` (the name Claude gives it, such as `Fable`, or null) and the same `available`, `remaining` and `resetsAt` as the other limits. With no per-model limit it is present with `available` false and nulls. The configured Codex file never gains this field.
+
 Each file is written, and preserved on failure, independently. A source that is switched off leaves its last file in place to age.
 
 ## Cadence and failure behavior
