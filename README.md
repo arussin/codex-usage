@@ -43,7 +43,8 @@ Original application by [Tooblippe](https://github.com/Tooblippe/codex-usage). U
 ## Optional phone notifications
 
 Push an alert when quota returns above 90% or falls below 10%, with separate
-weekly/five-hour choices for Codex and for Claude. Off by default; no phone polling.
+weekly/five-hour choices for Codex and for Claude, and Claude's per-model weekly
+limits. Off by default; no phone polling.
 See [setup and behavior](docs/PHONE_NOTIFICATIONS.md).
 
 Phone notifications are included in the current source. The older

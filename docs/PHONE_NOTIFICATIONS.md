@@ -18,12 +18,18 @@ selections; the other windows and low-quota alerts are independently optional.
 Settings are also available directly in the submenu. Changing settings
 establishes a quiet baseline.
 
-Windows are chosen per source: **Codex weekly**, **Codex 5-hour**, **Claude weekly**
-and **Claude 5-hour**. The recovery and low choices apply to every selected window.
-A source only alerts while it has a tray number, because a source with no tray
-number is not read. Alert titles name the source, for example
+Windows are chosen per source: **Codex weekly**, **Codex 5-hour**, **Claude weekly**,
+**Claude 5-hour** and **Claude model weekly**. The recovery and low choices apply to
+every selected window. A source only alerts while it has a tray number, because a
+source with no tray number is not read. Alert titles name the source, for example
 `Claude 5-hour: quota below 10%`. A selected 5-hour window can send a recovery
 alert after each reset that follows use, which may be several a day.
+
+**Claude model weekly** watches the weekly limits that apply to one model, which
+can run out well before the all-models weekly limit. Each model is tracked on its
+own and named in the title, for example `Claude Fable weekly: quota below 10%`.
+Use it in place of **Claude 5-hour** on an account that has no five-hour limit: a
+window the account does not report never alerts.
 
 ## Alert rules
 
@@ -74,12 +80,12 @@ See [publishing](https://docs.ntfy.sh/publish/) and
 
 ## Test
 
-Run `CodexUsageTray.exe --self-test-push` for 45 deterministic checks without
+Run `CodexUsageTray.exe --self-test-push` for 54 deterministic checks without
 sending any real notifications or accessing production settings. The existing
 `--self-test` suite is separate and includes a live Codex usage read.
 
 Validated on Windows with .NET SDK 10.0.401: Release build (zero warnings/errors),
-all 45 push checks, and the existing self-test suite.
+all 54 push checks, and the existing self-test suite.
 
 On September 17, 2026, the maintainer confirmed receiving the explicit test
 notification on their phone from the installed self-contained build at commit
@@ -92,3 +98,9 @@ own subscription and delivery test.
 Claude windows were added on November 21, 2026. They use the same rules and are
 covered by the deterministic tests. Upgrading re-establishes a quiet baseline once,
 because the saved alert state belongs to the previous set of choices.
+
+The per-model weekly choice was added on November 23, 2026, after Claude stopped
+reporting a five-hour limit on the maintainer's account. It uses the same rules,
+is covered by nine of the deterministic checks, and re-establishes a quiet baseline
+once on upgrade for the same reason. No per-model alert had fired naturally when
+this was written.

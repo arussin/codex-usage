@@ -143,6 +143,36 @@ internal static class PhoneNotificationTests
                 string saved = File.ReadAllText(Path.Combine(sources, "phone-notification-state.json"));
                 Check(saved.Contains("claude-5-hour") && !saved.Contains("claude-weekly"), "Claude windows were stored under the wrong keys.");
             }
+            // A per-model weekly limit is watched under its own name, apart from the all-models weekly.
+            string models = Path.Combine(directory, "models");
+            FakeHandler modelsHttp = new();
+            using (PhoneNotifications scoped = new(models, modelsHttp, () => now))
+            {
+                await scoped.ConfigureAsync(settings with { ClaudeScoped = true });
+                UsageSnapshot Models(int weekly, params (string Label, int Percent)[] limits) => new(
+                    new(LimitState.Unavailable, null, null), new(LimitState.Available, weekly, cycle), now, null)
+                { Scoped = [.. limits.Select(limit => new ScopedLimit(limit.Label, new(LimitState.Available, limit.Percent, cycle)))] };
+                async Task Step(int weekly, params (string Label, int Percent)[] limits)
+                { now = now.AddMinutes(5); await scoped.ProcessAsync(UsageSources.Claude, Models(weekly, limits)); }
+                await Step(50, ("Fable", 12));
+                Check(modelsHttp.Count == 0, "A first per-model reading caused an alert.");
+                await Step(5, ("Fable", 8));
+                Check(modelsHttp.Count == 1 && modelsHttp.Titles[^1] == "Claude Fable weekly: quota below 10%" && modelsHttp.Messages[^1].Contains("8%"),
+                    "Per-model low alert failed, or the unselected all-models weekly alerted.");
+                await Step(5, ("Fable", 7));
+                Check(modelsHttp.Count == 1, "Per-model low alert repeated in the same reset cycle.");
+                await Step(5, ("Fable", 7), ("Other\u0007\nmodel", 40)); await Step(5, ("Fable", 7), ("Other\u0007\nmodel", 9));
+                Check(modelsHttp.Count == 2 && modelsHttp.Titles[^1] == "Claude Other model weekly: quota below 10%", "A second model did not alert under its own plain name.");
+                now = cycle.AddMinutes(1); cycle = now.AddDays(7); await Step(96, ("Fable", 97), ("Other\u0007\nmodel", 50));
+                Check(modelsHttp.Count == 3 && modelsHttp.Titles[^1] == "Claude Fable weekly: quota available again", "A per-model reset did not send recovery for that model alone.");
+                string saved = File.ReadAllText(Path.Combine(models, "phone-notification-state.json"));
+                Check(saved.Contains("claude-scoped-fable") && saved.Contains("claude-scoped-other-model") && !saved.Contains("claude-weekly"), "Per-model windows were stored under the wrong keys.");
+                await scoped.ConfigureAsync(settings with { ClaudeWeekly = true });
+                await Step(50, ("Fable", 50)); await Step(50, ("Fable", 5));
+                Check(modelsHttp.Count == 3, "An unselected per-model limit sent a notification.");
+                Check(!(settings with { ClaudeScoped = true }).Watches(UsageSources.Codex, LimitWindow.Scoped), "A per-model choice applied to a source without per-model limits.");
+                Check(PhoneNotifications.ScopeName(" éè ") == "model" && PhoneNotifications.ScopeName(new string('a', 40)).Length == 24, "A provider label was not reduced to a short plain name.");
+            }
             Console.WriteLine($"Phone notification self-tests passed ({checks} checks; no real notifications sent)."); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine($"Phone notification test failed: {ex.Message}"); return 1; }

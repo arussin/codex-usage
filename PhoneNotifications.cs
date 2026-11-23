@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 namespace CodexUsageTray;
 
 internal sealed class PhoneAlert
@@ -97,8 +98,17 @@ internal sealed class PhoneNotifications : IDisposable
             using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, configurationChanged.Token);
             if (original) state.LastRead = snapshot.RefreshedAt; else state.SourceReads[source.Key] = snapshot.RefreshedAt;
             string key = source.AlertKeyPrefix, name = source.DisplayName;
-            if (Settings.Watches(source, fiveHour: false)) await ObserveAsync(key + "weekly", name + " weekly", snapshot.Weekly, snapshot.RefreshedAt, linked.Token);
-            if (Settings.Watches(source, fiveHour: true)) await ObserveAsync(key + "5-hour", name + " 5-hour", snapshot.FiveHour, snapshot.RefreshedAt, linked.Token);
+            if (Settings.Watches(source, LimitWindow.Weekly)) await ObserveAsync(key + "weekly", name + " weekly", snapshot.Weekly, snapshot.RefreshedAt, linked.Token);
+            if (Settings.Watches(source, LimitWindow.FiveHour)) await ObserveAsync(key + "5-hour", name + " 5-hour", snapshot.FiveHour, snapshot.RefreshedAt, linked.Token);
+            if (Settings.Watches(source, LimitWindow.Scoped))
+            {
+                // Each per-model weekly limit is its own window, so one model's reset never rearms another's alert.
+                foreach ((string model, LimitReading reading) in snapshot.Scoped
+                    .Select(limit => (Model: ScopeName(limit.Label), limit.Reading)).DistinctBy(limit => limit.Model.ToLowerInvariant()))
+                {
+                    await ObserveAsync($"{key}scoped-{model.ToLowerInvariant().Replace(' ', '-')}", $"{name} {model} weekly", reading, snapshot.RefreshedAt, linked.Token);
+                }
+            }
             if (!PhoneNotificationFiles.Save(statePath, state)) Status = "Could not save notification state";
         }
         catch (OperationCanceledException) { }
@@ -108,6 +118,12 @@ internal sealed class PhoneNotifications : IDisposable
             Status = "Notification check failed; quota display is unaffected";
         }
         finally { gate.Release(); }
+    }
+    // The provider's label ends up in an HTTP header and a state key, so keep only plain words from it.
+    internal static string ScopeName(string? label)
+    {
+        string plain = Regex.Replace(Regex.Replace(label ?? "", "[^A-Za-z0-9._-]+", " "), " +", " ").Trim();
+        return plain.Length == 0 ? "model" : plain[..Math.Min(plain.Length, 24)].TrimEnd();
     }
     private async Task ObserveAsync(string window, string label, LimitReading reading, DateTimeOffset at, CancellationToken token)
     {

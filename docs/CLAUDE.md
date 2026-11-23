@@ -51,7 +51,7 @@ Claude Code marks the `usage_report` format as experimental. If a Claude Code up
 
 ## Phone alerts
 
-The optional [phone notifications](PHONE_NOTIFICATIONS.md) can watch Claude too. Under **Phone notifications**, tick **Claude weekly** or **Claude 5-hour**. They are off until you tick them.
+The optional [phone notifications](PHONE_NOTIFICATIONS.md) can watch Claude too. Under **Phone notifications**, tick **Claude weekly**, **Claude 5-hour** or **Claude model weekly**. They are off until you tick them. **Claude model weekly** alerts for each per-model weekly limit by name, for example "Claude Fable weekly".
 
 ## JSON export
 
