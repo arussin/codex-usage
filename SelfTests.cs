@@ -27,6 +27,7 @@ internal static class SelfTests
             TestUsagePrediction(now);
             TestHistoryCsv(now);
             TestPopupReopen();
+            TestPhoneNotificationDialog();
 
             using (CancellationTokenSource timeout = new(TimeSpan.FromMilliseconds(20)))
             {
@@ -616,11 +617,48 @@ internal static class SelfTests
     }
 
     /// <summary>
-    /// Saves a picture of a popup when CODEX_USAGE_TRAY_PREVIEW_DIR names a folder, so its layout
+    /// Verifies that every choice in the phone notification dialog is fully visible at the current display DPI.
+    /// </summary>
+    private static void TestPhoneNotificationDialog()
+    {
+        // Shown off screen, with a placeholder topic: the real settings are never loaded here.
+        using PhoneNotificationDialog dialog = new(new PhoneNotificationSettings { Topic = "test-only" })
+        {
+            StartPosition = FormStartPosition.Manual,
+            Location = new Point(-32000, -32000),
+            ShowInTaskbar = false,
+        };
+        dialog.Show();
+        SavePreview(dialog);
+        List<Control> controls = [];
+        void Collect(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                controls.Add(child);
+                Collect(child);
+            }
+        }
+
+        Collect(dialog);
+        Check(controls.OfType<CheckBox>().Any(), "The phone notification dialog has no choices to check.");
+        foreach (Control control in controls)
+        {
+            Check(
+                control.Parent!.ClientRectangle.Contains(control.Bounds),
+                $"A phone notification choice was cut off: \"{control.Text}\" ({control.GetType().Name}) "
+                + $"at {dialog.DeviceDpi} DPI.");
+        }
+
+        dialog.Close();
+    }
+
+    /// <summary>
+    /// Saves a picture of a window when CODEX_USAGE_TRAY_PREVIEW_DIR names a folder, so its layout
     /// can be reviewed, or a documentation screenshot refreshed, without a running tray.
     /// </summary>
-    /// <param name="popup">The shown popup holding sample readings.</param>
-    private static void SavePreview(UsagePopup popup)
+    /// <param name="popup">The shown window holding sample readings or settings.</param>
+    private static void SavePreview(Form popup)
     {
         string? directory = Environment.GetEnvironmentVariable("CODEX_USAGE_TRAY_PREVIEW_DIR");
         if (string.IsNullOrWhiteSpace(directory))

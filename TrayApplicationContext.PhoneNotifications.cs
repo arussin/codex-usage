@@ -13,6 +13,7 @@ internal sealed partial class TrayApplicationContext
         ToolStripMenuItem fiveHour = new("Codex 5-hour");
         ToolStripMenuItem claudeWeekly = new("Claude weekly");
         ToolStripMenuItem claudeFiveHour = new("Claude 5-hour");
+        ToolStripMenuItem claudeScoped = new("Claude model weekly");
         ToolStripMenuItem configure = new("Configure ntfy…");
         ToolStripMenuItem copy = new("Copy subscription URL");
         ToolStripMenuItem test = new("Send test notification");
@@ -28,6 +29,7 @@ internal sealed partial class TrayApplicationContext
         fiveHour.Click += async (_, _) => await SavePhoneSettingsAsync(_phoneNotifications.Settings with { FiveHour = !fiveHour.Checked });
         claudeWeekly.Click += async (_, _) => await SavePhoneSettingsAsync(_phoneNotifications.Settings with { ClaudeWeekly = !claudeWeekly.Checked });
         claudeFiveHour.Click += async (_, _) => await SavePhoneSettingsAsync(_phoneNotifications.Settings with { ClaudeFiveHour = !claudeFiveHour.Checked });
+        claudeScoped.Click += async (_, _) => await SavePhoneSettingsAsync(_phoneNotifications.Settings with { ClaudeScoped = !claudeScoped.Checked });
         configure.Click += async (_, _) => await ConfigurePhoneNotificationsAsync();
         copy.Click += (_, _) =>
         {
@@ -52,10 +54,11 @@ internal sealed partial class TrayApplicationContext
             enabled.Checked = settings.Enabled; recovery.Checked = settings.Recovery;
             low.Checked = settings.Low; weekly.Checked = settings.Weekly; fiveHour.Checked = settings.FiveHour;
             claudeWeekly.Checked = settings.ClaudeWeekly; claudeFiveHour.Checked = settings.ClaudeFiveHour;
+            claudeScoped.Checked = settings.ClaudeScoped;
             copy.Enabled = test.Enabled = settings.HasDestination; status.Text = _phoneNotifications.Status;
         };
         menu.DropDownItems.AddRange([enabled, configure, copy, test, new ToolStripSeparator(), recovery, low,
-            new ToolStripSeparator(), weekly, fiveHour, claudeWeekly, claudeFiveHour, new ToolStripSeparator(), status]);
+            new ToolStripSeparator(), weekly, fiveHour, claudeWeekly, claudeFiveHour, claudeScoped, new ToolStripSeparator(), status]);
         _menu.Items.Insert(2, menu);
     }
     private async Task ConfigurePhoneNotificationsAsync()
@@ -95,8 +98,9 @@ internal sealed class PhoneNotificationDialog : Form
         CheckBox fiveHour = new() { Text = "Codex 5-hour", Checked = settings.FiveHour, AutoSize = true };
         CheckBox claudeWeekly = new() { Text = "Claude weekly", Checked = settings.ClaudeWeekly, AutoSize = true };
         CheckBox claudeFiveHour = new() { Text = "Claude 5-hour", Checked = settings.ClaudeFiveHour, AutoSize = true };
+        CheckBox claudeScoped = new() { Text = "Claude model weekly", Checked = settings.ClaudeScoped, AutoSize = true };
         FlowLayoutPanel alerts = new() { AutoSize = true, Dock = DockStyle.Fill }; alerts.Controls.AddRange([recovery, low]);
-        FlowLayoutPanel windows = new() { AutoSize = true, Dock = DockStyle.Fill }; windows.Controls.AddRange([weekly, fiveHour, claudeWeekly, claudeFiveHour]);
+        FlowLayoutPanel windows = new() { AutoSize = true, Dock = DockStyle.Fill }; windows.Controls.AddRange([weekly, fiveHour, claudeWeekly, claudeFiveHour, claudeScoped]);
         Button random = new() { Text = "New random topic", AutoSize = true }; random.Click += (_, _) => topic.Text = PhoneNotificationSettings.NewTopic();
         Label help = new()
         {
@@ -124,6 +128,7 @@ internal sealed class PhoneNotificationDialog : Form
                 FiveHour = fiveHour.Checked,
                 ClaudeWeekly = claudeWeekly.Checked,
                 ClaudeFiveHour = claudeFiveHour.Checked,
+                ClaudeScoped = claudeScoped.Checked,
             };
             if (!value.HasDestination)
             {
