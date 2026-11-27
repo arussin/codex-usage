@@ -13,6 +13,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _jsonExportItem = new("Enable export");
     private readonly ToolStripMenuItem _jsonExportMenu = new("JSON export");
     private readonly ToolStripMenuItem _trayNumbersMenu = new("Tray numbers");
+    private readonly ToolStripMenuItem _claudePlanItem = new(ClaudePlanSwitch.MenuText);
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = 300_000 };
 
     /// <summary>
@@ -34,8 +35,14 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
             _jsonExport.Settings with { Enabled = !_jsonExport.Settings.Enabled });
         _jsonExportMenu.ToolTipText = _jsonExport.Settings.OutputPath;
         _jsonExportMenu.DropDownItems.AddRange([_jsonExportItem, chooseOutputItem]);
+        _claudePlanItem.Checked = ClaudePlanSwitch.HasFiveHourLimit(_trayNumbers);
+        _claudePlanItem.ToolTipText = "Shows or hides the Claude 5-hour tray number and its phone alert together.";
+        _claudePlanItem.Click += async (_, _) =>
+            await SwitchClaudePlanAsync(!ClaudePlanSwitch.HasFiveHourLimit(_trayNumbers));
+        // The Claude 5-hour number can also be ticked on its own under Tray numbers.
+        _menu.Opening += (_, _) => _claudePlanItem.Checked = ClaudePlanSwitch.HasFiveHourLimit(_trayNumbers);
         _menu.Items.AddRange(
-            [refreshItem, _jsonExportMenu, _trayNumbersMenu, _startupItem, new ToolStripSeparator(), exitItem]);
+            [refreshItem, _jsonExportMenu, _trayNumbersMenu, _claudePlanItem, _startupItem, new ToolStripSeparator(), exitItem]);
 
         InitializePhoneNotifications();
 
@@ -50,7 +57,8 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
                 {
                     Checked = _trayNumbers.IsShown(source, window),
                 };
-                item.Click += (_, _) => ToggleTrayNumber(runtime, window, item);
+                item.Click += (_, _) => ToggleTrayNumber(runtime, window);
+                runtime.NumberItems[window] = item;
                 _trayNumbersMenu.DropDownItems.Add(item);
             }
 
@@ -68,23 +76,68 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
     /// </summary>
     /// <param name="runtime">The source that owns the window.</param>
     /// <param name="window">The window to show or hide.</param>
-    /// <param name="item">The menu item reflecting the choice.</param>
-    private void ToggleTrayNumber(SourceRuntime runtime, LimitWindow window, ToolStripMenuItem item)
+    private void ToggleTrayNumber(SourceRuntime runtime, LimitWindow window)
     {
         bool show = !_trayNumbers.IsShown(runtime.Source, window);
         bool last = !show && _trayNumbers.ShownCount <= 1;
         if (!_trayNumbers.TrySet(runtime.Source, window, show))
         {
-            MessageBox.Show(
-                last
-                    ? "Keep at least one tray number so this menu stays reachable."
-                    : "Could not save the tray number settings. The previous settings remain in effect.",
-                "Codex Usage Tray",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            WarnTrayNumberUnchanged(last);
         }
 
-        item.Checked = _trayNumbers.IsShown(runtime.Source, window);
+        ApplyTrayNumber(runtime, window, refresh: show);
+    }
+
+    /// <summary>
+    /// Switches between a Claude plan with a five-hour limit and one without: the Claude 5-hour
+    /// tray number and its phone alert move together, and nothing else changes.
+    /// </summary>
+    /// <param name="hasFiveHourLimit">Whether the Claude plan has a five-hour limit.</param>
+    private async Task SwitchClaudePlanAsync(bool hasFiveHourLimit)
+    {
+        SourceRuntime runtime = _sources.First(candidate => candidate.Source == UsageSources.Claude);
+        bool last = !hasFiveHourLimit && _trayNumbers.ShownCount <= 1;
+        if (!ClaudePlanSwitch.TrySwitch(
+            _trayNumbers,
+            _phoneNotifications.Settings,
+            hasFiveHourLimit,
+            out PhoneNotificationSettings alerts))
+        {
+            WarnTrayNumberUnchanged(last);
+            ApplyTrayNumber(runtime, LimitWindow.FiveHour, refresh: false);
+            return;
+        }
+
+        ApplyTrayNumber(runtime, LimitWindow.FiveHour, refresh: hasFiveHourLimit);
+        if (alerts != _phoneNotifications.Settings)
+        {
+            await SavePhoneSettingsAsync(alerts);
+        }
+    }
+
+    /// <summary>
+    /// Explains why a tray number stayed as it was.
+    /// </summary>
+    /// <param name="last">Whether it is the last number shown, which cannot be hidden.</param>
+    private static void WarnTrayNumberUnchanged(bool last) =>
+        MessageBox.Show(
+            last
+                ? "Keep at least one tray number so this menu stays reachable."
+                : "Could not save the tray number settings. The previous settings remain in effect.",
+            "Codex Usage Tray",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+
+    /// <summary>
+    /// Brings one window's menu tick, its source's icons and their readings in line with the saved choice.
+    /// </summary>
+    /// <param name="runtime">The source that owns the window.</param>
+    /// <param name="window">The window whose choice may have changed.</param>
+    /// <param name="refresh">Whether to request a fresh reading for the source.</param>
+    private void ApplyTrayNumber(SourceRuntime runtime, LimitWindow window, bool refresh)
+    {
+        runtime.NumberItems[window].Checked = _trayNumbers.IsShown(runtime.Source, window);
+        _claudePlanItem.Checked = ClaudePlanSwitch.HasFiveHourLimit(_trayNumbers);
         SyncTrayNumbers(runtime);
         if (!_trayNumbers.IsActive(runtime.Source))
         {
@@ -94,7 +147,7 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
         }
 
         ApplySnapshot(runtime);
-        if (show)
+        if (refresh)
         {
             _ = RefreshAsync(runtime);
         }
@@ -451,6 +504,8 @@ internal sealed partial class TrayApplicationContext : ApplicationContext
         internal UsagePopup Popup { get; } = new(source.DisplayName, source.ScopedRows);
 
         internal Dictionary<LimitWindow, TrayNumber> Numbers { get; } = [];
+
+        internal Dictionary<LimitWindow, ToolStripMenuItem> NumberItems { get; } = [];
 
         internal UsageSnapshot Snapshot { get; set; } = UsageSnapshot.Initial();
 

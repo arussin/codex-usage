@@ -16,6 +16,7 @@ internal static class SelfTests
             TestCodexParsing(now);
             TestClaudeParsing(now);
             TestTrayNumbers(now);
+            TestClaudePlanSwitch();
             TestWeeklyDailyRates(now);
             TestWeeklyEndOfDayTarget(now);
             TestWeeklyLeft(now);
@@ -231,6 +232,71 @@ internal static class SelfTests
                 Check(icon.Width > 0, "A tray number could not be rendered.");
                 SavePreview(icon, $"tray-number-{frame}".ToLowerInvariant());
             }
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that one choice moves the Claude 5-hour tray number and its phone alert together,
+    /// leaves every other choice alone, and refuses as a whole when the number cannot be hidden.
+    /// </summary>
+    private static void TestClaudePlanSwitch()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"CodexUsageTray-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "tray-numbers.json");
+        UsageSource codex = UsageSources.Codex;
+        UsageSource claude = UsageSources.Claude;
+        try
+        {
+            TrayNumberStore store = new(UsageSources.All, path);
+            PhoneNotificationSettings alerts = new() { ClaudeWeekly = true, ClaudeScoped = true, Low = true };
+            Check(!ClaudePlanSwitch.HasFiveHourLimit(store), "A fresh install claimed a Claude five-hour limit.");
+            Check(
+                ClaudePlanSwitch.TrySwitch(store, alerts, true, out PhoneNotificationSettings withLimit)
+                    && ClaudePlanSwitch.HasFiveHourLimit(store)
+                    && withLimit == (alerts with { ClaudeFiveHour = true }),
+                "Switching to a plan with a five-hour limit did not turn on its number and alert only.");
+            Check(
+                store.IsShown(codex, LimitWindow.Weekly) && store.ShownCount == 2,
+                "The plan switch changed another tray number.");
+            Check(
+                ClaudePlanSwitch.HasFiveHourLimit(new TrayNumberStore(UsageSources.All, path)),
+                "The plan switch did not survive restart.");
+            Check(
+                ClaudePlanSwitch.TrySwitch(store, withLimit, true, out PhoneNotificationSettings repeated)
+                    && repeated == withLimit
+                    && store.ShownCount == 2,
+                "Repeating the current plan changed something.");
+            Check(
+                ClaudePlanSwitch.TrySwitch(store, withLimit, false, out PhoneNotificationSettings withoutLimit)
+                    && !ClaudePlanSwitch.HasFiveHourLimit(store)
+                    && store.ShownCount == 1
+                    && withoutLimit == alerts,
+                "Switching to a plan without a five-hour limit did not turn off its number and alert only.");
+            Check(
+                ClaudePlanSwitch.TrySwitch(
+                    store,
+                    alerts with { ClaudeFiveHour = true },
+                    false,
+                    out PhoneNotificationSettings cleared)
+                    && cleared == alerts,
+                "A five-hour alert ticked by hand outlived the switch to a plan without that limit.");
+
+            // With the Claude 5-hour number as the only one left, the menu must stay reachable.
+            Check(
+                store.TrySet(claude, LimitWindow.FiveHour, true) && store.TrySet(codex, LimitWindow.Weekly, false),
+                "Could not leave the Claude five-hour number as the last one.");
+            Check(
+                !ClaudePlanSwitch.TrySwitch(store, withLimit, false, out PhoneNotificationSettings refused)
+                    && refused == withLimit
+                    && ClaudePlanSwitch.HasFiveHourLimit(store),
+                "The plan switch hid the last tray number, or changed alerts without it.");
         }
         finally
         {

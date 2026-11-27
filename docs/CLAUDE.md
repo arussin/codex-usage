@@ -29,6 +29,19 @@ Weekly digits are green while you are on or ahead of an even daily pace and red 
 
 Windows places new tray icons in the overflow area. Drag a number onto the taskbar to keep it visible.
 
+## Plans with and without a 5-hour limit
+
+Some Claude plans have a five-hour limit and some do not. When you change plan, right-click any tray number and tick or untick **Claude plan has a 5-hour limit**.
+
+| | Ticked | Unticked |
+| --- | --- | --- |
+| Claude 5-hour tray number | Shown | Hidden |
+| Claude 5-hour phone alert | Watched | Not watched |
+
+Nothing else changes: the other tray numbers, the other phone alerts, the popup and the JSON export stay as they are. On a plan without the limit, `claude.json` reports `fiveHour` as unavailable whichever way this is set, so anything that reads the feed can follow the plan by itself.
+
+The tick mirrors the **Claude 5-hour** entry under **Tray numbers**. That entry, and the alert under **Phone notifications**, can still be changed on their own. Switching the alert starts a quiet baseline, as any change to the phone alert choices does. If Claude 5-hour is the only tray number shown, it stays, because the menu is only reachable through an icon.
+
 ## Switching a source off
 
 A source is polled only while at least one of its tray numbers is ticked. Untick all Codex numbers and the app stops calling the Codex CLI, stops updating `usage.json`, and removes the Codex icons. The same applies to Claude. One number always stays, because the menu is only reachable through an icon.
