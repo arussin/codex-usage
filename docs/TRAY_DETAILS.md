@@ -18,6 +18,7 @@ The app refreshes at startup and every five minutes while running. Right-click �
 | JSON export → Enable export | Start or stop writing the JSON feed. Off by default. |
 | JSON export → Choose output file… | Select the destination file. Selecting a file does not enable export. |
 | Tray numbers | Choose which quotas appear as their own tray number: Codex weekly and 5-hour, and [Claude](CLAUDE.md) 5-hour, weekly and per-model weekly. A source with no ticked number is not polled. |
+| Claude plan has a 5-hour limit | Tick on a Claude plan with a five-hour limit, untick on one without. Shows or hides the [Claude 5-hour number and its phone alert](CLAUDE.md#plans-with-and-without-a-5-hour-limit) together. |
 | Start with Windows | Enable or disable automatic startup for this Windows account. |
 | Exit | Close the tray app and stop polling. |
 

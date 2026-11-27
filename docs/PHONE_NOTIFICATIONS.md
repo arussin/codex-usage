@@ -29,7 +29,9 @@ alert after each reset that follows use, which may be several a day.
 can run out well before the all-models weekly limit. Each model is tracked on its
 own and named in the title, for example `Claude Fable weekly: quota below 10%`.
 Use it in place of **Claude 5-hour** on an account that has no five-hour limit: a
-window the account does not report never alerts.
+window the account does not report never alerts. The tray menu's **Claude plan has
+a 5-hour limit** tick switches the **Claude 5-hour** alert on and off together with
+its tray number, and leaves **Claude model weekly** as it is.
 
 ## Alert rules
 
